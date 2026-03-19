@@ -16,10 +16,10 @@ python server.py
 ┌─────────────────────────────────────────────────────────────┐
 │                        Navigateur                           │
 │                                                             │
-│   ┌─────────────┐        ┌──────────────────────────────┐  │
-│   │  Zone chat  │        │        Zone fichiers         │  │
-│   │             │        │  [Upload form]  [Liste /files]│  │
-│   └─────────────┘        └──────────────────────────────┘  │
+│   ┌─────────────┐        ┌──────────────────────────────┐   │
+│   │  Zone chat  │        │        Zone fichiers         │   │
+│   │             │        │  [Upload form] [Liste /files]│   │
+│   └─────────────┘        └──────────────────────────────┘   │
 │          │                        │             ↑           │
 │      WS send                 POST /upload   GET /files      │
 │     (JSON+HTML)              (multipart)   (polling 3s)     │
@@ -35,12 +35,12 @@ python server.py
 │   GET /files     → Liste les fichiers (JSON)                │
 │   GET /uploads/  → Téléchargement d'un fichier              │
 │                                                             │
-│   ws_clients = { ws1, ws2, ws3, ... }  ← set en mémoire    │
+│   ws_clients = { ws1, ws2, ws3, ... }  ← set en mémoire     │
 │                                                             │
-│   À chaque message reçu sur /ws :                          │
-│   ┌─────────────────────────────────────────────────────┐  │
-│   │  Client A ──→ serveur ──→ broadcast ──→ tous (A+B+C)│  │
-│   └─────────────────────────────────────────────────────┘  │
+│   À chaque message reçu sur /ws :                           │
+│   ┌─────────────────────────────────────────────────────┐   │
+│   │  Client A ──→ serveur ──→ broadcast ──→ tous (A+B+C)│   │
+│   └─────────────────────────────────────────────────────┘   │
 └──────────────────────────────┬──────────────────────────────┘
                                │
                                ▼
