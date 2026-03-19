@@ -20,6 +20,9 @@ __pycache__/
 uploads/*
 !uploads/.gitkeep
 
+# Claude Code
+CLAUDE.md
+
 # IDE
 .vscode/
 .idea/
