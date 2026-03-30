@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HChat - Room</title>
+  <script src="/static/crypto.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -108,6 +109,26 @@
     }
     .auth-btn:hover  { opacity: .9; }
     .auth-btn:active { transform: scale(.97); }
+    .auth-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+    /* Badge mode crypto (discret, informatif) */
+    .crypto-badge {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+    .crypto-badge span {
+      background: rgba(99,102,241,.1);
+      border: 1px solid rgba(99,102,241,.2);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 10px;
+      color: var(--accent);
+      font-weight: 600;
+    }
     .auth-error {
       font-size: 13px;
       color: var(--danger);
@@ -561,6 +582,9 @@
     </div>
     <div class="auth-error" id="auth-error"></div>
     <button class="auth-btn" onclick="authJoin()">Rejoindre</button>
+    <div class="crypto-badge" id="crypto-badge">
+      AES-256-GCM &bull; <span id="crypto-mode">...</span>
+    </div>
   </div>
 </div>
 
@@ -640,124 +664,45 @@
 
 <script>
 /* ============================================================
-   Utilitaires
+   Etat de l'application
    ============================================================ */
 
-const enc = new TextEncoder();
-const dec = new TextDecoder();
+const ROOM_ID    = location.pathname.split("/room/")[1] || "";
+const KEY_TOKEN  = "hchat_token_"    + ROOM_ID;
+const KEY_SALT   = "hchat_salt_"     + ROOM_ID;
+const KEY_PASS   = "hchat_password_" + ROOM_ID;
+const KEY_USER   = "hchat_username_" + ROOM_ID;
 
-// Extrait le room_id depuis l'URL /room/{id}
-const ROOM_ID = location.pathname.split("/room/")[1] || "";
-
-// Cles sessionStorage
-const KEY_TOKEN    = "hchat_token_"    + ROOM_ID;
-const KEY_SALT     = "hchat_salt_"     + ROOM_ID;
-const KEY_PASSWORD = "hchat_password_" + ROOM_ID;
-const KEY_USERNAME = "hchat_username_" + ROOM_ID;
-
-let cryptoKey   = null;  // CryptoKey AES-GCM derive du mot de passe
 let sessionToken = "";
-let myUsername  = "";
-let myUserId    = "";    // extrait du token
-let ws          = null;
-
-// Debounce pour l'indicateur de frappe
+let myUsername   = "";
+let myUserId     = "";
+let ws           = null;
 let typingTimer  = null;
 let isTyping     = false;
-
-// Variables pour le regroupement de messages
 let lastGroupEl  = null;
 let lastSenderId = null;
-
-// Indicateur de position de scroll
-let atBottom = true;
+let atBottom     = true;
 
 /* ============================================================
-   Chiffrement / Dechiffrement AES-GCM 256
+   Chiffrement - delegue entierement a HChatCrypto (crypto.js)
+   Fonctionne avec Web Crypto API (HTTPS) et en pur JS (HTTP,
+   anciens navigateurs, appareils verrouilles).
    ============================================================ */
 
-/**
- * Derive une cle AES-GCM 256 bits depuis le mot de passe et le sel.
- * Utilise PBKDF2 avec 200 000 iterations et SHA-256.
- */
-async function deriveKey(password, saltHex) {
-  const saltBytes = hexToBytes(saltHex);
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]
-  );
-  return crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt: saltBytes, iterations: 200000, hash: "SHA-256" },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-
-/**
- * Chiffre un texte en clair avec AES-GCM.
- * Retourne un objet JSON serialise {"iv":"..hex..","ct":"..base64.."}
- */
-async function encrypt(plaintext) {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    cryptoKey,
-    enc.encode(plaintext)
-  );
-  return JSON.stringify({
-    iv: bytesToHex(iv),
-    ct: btoa(String.fromCharCode(...new Uint8Array(ct)))
-  });
-}
-
-/**
- * Dechiffre un payload JSON chiffre AES-GCM.
- * Retourne le texte en clair ou null si le dechiffrement echoue.
- */
-async function decrypt(payload) {
-  try {
-    const { iv, ct } = JSON.parse(payload);
-    const ivBytes = hexToBytes(iv);
-    const ctBytes = Uint8Array.from(atob(ct), c => c.charCodeAt(0));
-    const plain = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: ivBytes },
-      cryptoKey,
-      ctBytes
-    );
-    return dec.decode(plain);
-  } catch {
-    return null;
-  }
-}
-
-function hexToBytes(hex) {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2)
-    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
-  return bytes;
-}
-
-function bytesToHex(bytes) {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
-}
+async function encrypt(plaintext)   { return HChatCrypto.encrypt(plaintext); }
+async function decrypt(payload)     { return HChatCrypto.decrypt(payload); }
 
 /* ============================================================
    Authentification
    ============================================================ */
 
-/**
- * Tente de recuperer la session depuis sessionStorage.
- * Si la session est presente, derive la cle et demarre l'interface.
- * Sinon, affiche l'ecran d'authentification.
- */
 async function init() {
   if (!ROOM_ID) { location.href = "/"; return; }
 
   const token    = sessionStorage.getItem(KEY_TOKEN);
   const salt     = sessionStorage.getItem(KEY_SALT);
-  const password = sessionStorage.getItem(KEY_PASSWORD);
-  const username = sessionStorage.getItem(KEY_USERNAME);
+  const password = sessionStorage.getItem(KEY_PASS);
+  const username = sessionStorage.getItem(KEY_USER);
 
   document.getElementById("room-id-badge").textContent = ROOM_ID.slice(0, 12) + "...";
 
@@ -771,10 +716,12 @@ async function authJoin() {
   const username = document.getElementById("a-username").value.trim() || "Anonyme";
   const password = document.getElementById("a-password").value;
   const errEl    = document.getElementById("auth-error");
+  const btn      = document.querySelector(".auth-btn");
 
   errEl.classList.remove("visible");
   if (!password) { errEl.textContent = "Le mot de passe est obligatoire."; errEl.classList.add("visible"); return; }
 
+  btn.disabled = true; btn.textContent = "Connexion...";
   try {
     const res  = await fetch(`/api/rooms/${encodeURIComponent(ROOM_ID)}/join`, {
       method:  "POST",
@@ -787,14 +734,16 @@ async function authJoin() {
       errEl.classList.add("visible");
       return;
     }
-    sessionStorage.setItem(KEY_TOKEN,    data.token);
-    sessionStorage.setItem(KEY_SALT,     data.salt);
-    sessionStorage.setItem(KEY_PASSWORD, password);
-    sessionStorage.setItem(KEY_USERNAME, username);
+    sessionStorage.setItem(KEY_TOKEN, data.token);
+    sessionStorage.setItem(KEY_SALT,  data.salt);
+    sessionStorage.setItem(KEY_PASS,  password);
+    sessionStorage.setItem(KEY_USER,  username);
     await startSession(data.token, data.salt, password, username);
   } catch {
     errEl.textContent = "Impossible de contacter le serveur.";
     errEl.classList.add("visible");
+  } finally {
+    btn.disabled = false; btn.textContent = "Rejoindre";
   }
 }
 
@@ -802,26 +751,31 @@ async function startSession(token, salt, password, username) {
   sessionToken = token;
   myUsername   = username;
 
-  // Extrait user_id depuis le payload du token (base64url, pas besoin de verifier - c'est le serveur qui l'a signe)
+  // Extrait user_id depuis le payload du token (uniquement pour identifier ses propres messages)
   try {
-    const parts   = token.split(".");
-    const padded  = parts[0] + "=".repeat((4 - parts[0].length % 4) % 4);
-    const payload = JSON.parse(atob(padded.replace(/-/g, "+").replace(/_/g, "/")));
-    myUserId = payload.uid || "";
+    const parts  = token.split(".");
+    const padded = parts[0] + "=".repeat((4 - parts[0].length % 4) % 4);
+    myUserId = JSON.parse(atob(padded.replace(/-/g, "+").replace(/_/g, "/"))).uid || "";
   } catch { myUserId = ""; }
 
+  // Derive la cle AES-256 - affiche un indicateur pendant le calcul PBKDF2
+  const errEl = document.getElementById("auth-error");
+  const btn   = document.querySelector(".auth-btn");
+  errEl.classList.remove("visible");
+  if (btn) { btn.disabled = true; btn.textContent = "Chiffrement en cours..."; }
+
   try {
-    cryptoKey = await deriveKey(password, salt);
-  } catch {
-    document.getElementById("auth-error").textContent = "Erreur lors de l'initialisation du chiffrement.";
-    document.getElementById("auth-error").classList.add("visible");
+    await HChatCrypto.deriveKey(password, salt);
+  } catch (e) {
+    errEl.textContent = "Erreur de chiffrement : " + (e && e.message ? e.message : "verifiez la compatibilite du navigateur.");
+    errEl.classList.add("visible");
+    if (btn) { btn.disabled = false; btn.textContent = "Rejoindre"; }
     return;
   }
 
-  // Cache l'ecran d'auth, affiche l'application
+  if (btn) { btn.disabled = false; btn.textContent = "Rejoindre"; }
   document.getElementById("auth-screen").style.display = "none";
   document.getElementById("app").classList.add("visible");
-
   connectWS();
 }
 
@@ -1227,10 +1181,19 @@ function showToast(msg) {
    ============================================================ */
 
 window.addEventListener("DOMContentLoaded", async () => {
+  // Affiche le mode crypto utilise (natif ou fallback JS)
+  const modeEl = document.getElementById("crypto-mode");
+  if (modeEl) {
+    modeEl.textContent = HChatCrypto.isNative() ? "Web Crypto" : "JS fallback";
+    modeEl.title = HChatCrypto.isNative()
+      ? "Web Crypto API - accelere materiel"
+      : "Implementation JS - contexte non-securise ou navigateur ancien";
+  }
+
   await init();
 
   // Charge la liste de fichiers une fois la session etablie
-  if (cryptoKey) await loadFiles();
+  if (sessionToken) await loadFiles();
 
   // Soumettre l'auth avec Entree
   document.getElementById("a-password").addEventListener("keydown", e => {
