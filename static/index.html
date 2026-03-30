@@ -203,6 +203,33 @@
       height: 1px;
       background: var(--border);
     }
+
+    /* Selecteur de mode de destruction */
+    .destroy-toggle {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 3px;
+      gap: 3px;
+    }
+    .dtoggle-btn {
+      padding: 9px;
+      background: none;
+      border: none;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .2s, color .2s;
+    }
+    .dtoggle-btn.active {
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
   </style>
 </head>
 <body>
@@ -231,11 +258,18 @@
           <label for="create-password">Mot de passe de la room</label>
           <input id="create-password" type="password" placeholder="Min. 6 caracteres" autocomplete="new-password">
         </div>
+        <div class="field">
+          <label>Destruction de la room</label>
+          <div class="destroy-toggle">
+            <button class="dtoggle-btn active" id="dtoggle-all" onclick="setDestroyMode(true)">Tout le monde</button>
+            <button class="dtoggle-btn" id="dtoggle-creator" onclick="setDestroyMode(false)">Createur uniquement</button>
+          </div>
+        </div>
         <div class="security-note">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
           </svg>
-          <span>Messages chiffres de bout en bout via AES-GCM 256. Le serveur ne peut pas lire vos echanges. La room s'autodetruit apres 24h.</span>
+          <span>Messages chiffres de bout en bout via AES-GCM 256. Le serveur ne peut pas lire vos echanges. La room s'autodetruit apres 24h ou 1h d'inactivite.</span>
         </div>
         <div class="error-msg" id="create-error"></div>
         <button class="btn-primary" id="btn-create" onclick="createRoom()">
@@ -274,6 +308,15 @@
   if (pathMatch) {
     switchTab("join");
     document.getElementById("join-room-id").value = pathMatch[1];
+  }
+
+  // Mode de destruction selectionne lors de la creation (true = tout le monde, false = createur seul)
+  let allowAnyoneDestroy = true;
+
+  function setDestroyMode(val) {
+    allowAnyoneDestroy = val;
+    document.getElementById("dtoggle-all").classList.toggle("active",    val);
+    document.getElementById("dtoggle-creator").classList.toggle("active", !val);
   }
 
   function switchTab(tab) {
@@ -318,12 +361,12 @@
       const res  = await fetch("/api/rooms", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ password, username }),
+        body:    JSON.stringify({ password, username, allow_anyone_destroy: allowAnyoneDestroy }),
       });
       const data = await res.json();
       if (!res.ok) { showError("create-error", data.error || "Erreur inconnue."); return; }
 
-      storeSession(data.room_id, data.token, data.salt, password, username);
+      storeSession(data.room_id, data.token, data.salt, password, username, true, data.allow_anyone_destroy);
       location.href = "/room/" + data.room_id;
     } catch {
       showError("create-error", "Impossible de contacter le serveur.");
@@ -351,7 +394,7 @@
       const data = await res.json();
       if (!res.ok) { showError("join-error", data.error || "Room introuvable ou mot de passe incorrect."); return; }
 
-      storeSession(roomId, data.token, data.salt, password, username);
+      storeSession(roomId, data.token, data.salt, password, username, false, data.allow_anyone_destroy);
       location.href = "/room/" + roomId;
     } catch {
       showError("join-error", "Impossible de contacter le serveur.");
@@ -360,11 +403,13 @@
     }
   }
 
-  function storeSession(roomId, token, salt, password, username) {
+  function storeSession(roomId, token, salt, password, username, isCreator, allowDestroyForAll) {
     sessionStorage.setItem("hchat_token_"    + roomId, token);
     sessionStorage.setItem("hchat_salt_"     + roomId, salt);
     sessionStorage.setItem("hchat_password_" + roomId, password);
     sessionStorage.setItem("hchat_username_" + roomId, username);
+    sessionStorage.setItem("hchat_creator_"  + roomId, isCreator       ? "1" : "0");
+    sessionStorage.setItem("hchat_destroy_"  + roomId, allowDestroyForAll ? "1" : "0");
   }
 
   // Soumettre avec Entree

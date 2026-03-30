@@ -667,11 +667,13 @@
    Etat de l'application
    ============================================================ */
 
-const ROOM_ID    = location.pathname.split("/room/")[1] || "";
-const KEY_TOKEN  = "hchat_token_"    + ROOM_ID;
-const KEY_SALT   = "hchat_salt_"     + ROOM_ID;
-const KEY_PASS   = "hchat_password_" + ROOM_ID;
-const KEY_USER   = "hchat_username_" + ROOM_ID;
+const ROOM_ID     = location.pathname.split("/room/")[1] || "";
+const KEY_TOKEN   = "hchat_token_"    + ROOM_ID;
+const KEY_SALT    = "hchat_salt_"     + ROOM_ID;
+const KEY_PASS    = "hchat_password_" + ROOM_ID;
+const KEY_USER    = "hchat_username_" + ROOM_ID;
+const KEY_CREATOR = "hchat_creator_"  + ROOM_ID;
+const KEY_DESTROY = "hchat_destroy_"  + ROOM_ID;
 
 let sessionToken = "";
 let myUsername   = "";
@@ -734,10 +736,12 @@ async function authJoin() {
       errEl.classList.add("visible");
       return;
     }
-    sessionStorage.setItem(KEY_TOKEN, data.token);
-    sessionStorage.setItem(KEY_SALT,  data.salt);
-    sessionStorage.setItem(KEY_PASS,  password);
-    sessionStorage.setItem(KEY_USER,  username);
+    sessionStorage.setItem(KEY_TOKEN,   data.token);
+    sessionStorage.setItem(KEY_SALT,    data.salt);
+    sessionStorage.setItem(KEY_PASS,    password);
+    sessionStorage.setItem(KEY_USER,    username);
+    sessionStorage.setItem(KEY_CREATOR, "0");
+    sessionStorage.setItem(KEY_DESTROY, data.allow_anyone_destroy ? "1" : "0");
     await startSession(data.token, data.salt, password, username);
   } catch {
     errEl.textContent = "Impossible de contacter le serveur.";
@@ -776,6 +780,7 @@ async function startSession(token, salt, password, username) {
   if (btn) { btn.disabled = false; btn.textContent = "Rejoindre"; }
   document.getElementById("auth-screen").style.display = "none";
   document.getElementById("app").classList.add("visible");
+  applyDestroyPermissions();
   connectWS();
 }
 
@@ -1160,7 +1165,22 @@ async function destroyRoom() {
 }
 
 function clearSession() {
-  [KEY_TOKEN, KEY_SALT, KEY_PASSWORD, KEY_USERNAME].forEach(k => sessionStorage.removeItem(k));
+  [KEY_TOKEN, KEY_SALT, KEY_PASS, KEY_USER, KEY_CREATOR, KEY_DESTROY].forEach(k => sessionStorage.removeItem(k));
+}
+
+/* ============================================================
+   Droits de destruction
+   ============================================================ */
+
+/**
+ * Affiche ou masque le bouton de destruction selon les droits de l'utilisateur.
+ * Le bouton est visible si tout le monde peut detruire, ou si l'utilisateur est le createur.
+ */
+function applyDestroyPermissions() {
+  const canDestroy = sessionStorage.getItem(KEY_DESTROY) === "1"
+                  || sessionStorage.getItem(KEY_CREATOR) === "1";
+  const btn = document.querySelector(".btn-icon.danger");
+  if (btn) btn.style.display = canDestroy ? "flex" : "none";
 }
 
 /* ============================================================

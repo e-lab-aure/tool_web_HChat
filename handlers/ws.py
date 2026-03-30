@@ -28,7 +28,7 @@ from aiohttp import web, WSMsgType
 from config import MAX_MESSAGE_SIZE, MAX_HISTORY
 from state import AppState, ConnectedUser
 from utils.auth import verify_token
-from utils.db import save_message, load_recent_messages
+from utils.db import save_message, load_recent_messages, update_room_activity
 from utils.logger import logger
 
 
@@ -173,6 +173,12 @@ async def _handle_message(
     except Exception as exc:
         logger.error("Erreur persistance message de %s : %s", user.username, exc)
         msg_id = -1
+
+    # Met a jour l'horodatage d'activite pour eviter la destruction automatique par inactivite
+    try:
+        await update_room_activity(user.room_id)
+    except Exception as exc:
+        logger.warning("Erreur mise a jour activite room %s : %s", user.room_id[:8], exc)
 
     await state.broadcast_to_room(
         user.room_id,

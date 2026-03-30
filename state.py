@@ -65,6 +65,10 @@ class AppState:
             if u.room_id == room_id
         ]
 
+    def get_active_room_ids(self) -> set[str]:
+        """Retourne l'ensemble des room_id ayant au moins un client connecte."""
+        return {u.room_id for u in self._connections.values()}
+
     # ------------------------------------------------------------------
     # Diffusion de messages
     # ------------------------------------------------------------------

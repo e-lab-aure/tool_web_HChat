@@ -3,6 +3,7 @@ Couche de persistance SQLite via aiosqlite.
 Gere les rooms, messages chiffres et fichiers avec migration de schema versionne.
 
 Schema v1 : rooms, messages, room_files, schema_version
+Schema v2 : rooms + colonnes creator_id, allow_anyone_destroy, last_activity
 Les messages stockent uniquement le contenu chiffre cote client (AES-GCM).
 Le serveur ne voit jamais le texte en clair.
 """
@@ -25,7 +26,7 @@ def generate_room_id() -> str:
     return "-".join(secrets.choice(WORDS) for _ in range(4))
 
 # Version courante du schema - incrementer a chaque migration
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 
 async def init_db() -> None:
@@ -52,6 +53,8 @@ async def init_db() -> None:
 
         if current_version < 1:
             await _migrate_v1(db)
+        if current_version < 2:
+            await _migrate_v2(db)
 
         await db.commit()
     logger.info("Base de donnees initialisee (schema v%d)", _SCHEMA_VERSION)
@@ -111,35 +114,65 @@ async def _migrate_v1(db: aiosqlite.Connection) -> None:
     logger.info("Migration schema v1 appliquee")
 
 
+async def _migrate_v2(db: aiosqlite.Connection) -> None:
+    """
+    Migration vers le schema v2 : ajout des colonnes de gestion des droits de destruction
+    et de suivi de l'activite pour la destruction automatique par inactivite.
+    Utilise ALTER TABLE pour preserver les donnees existantes.
+    """
+    await db.execute("ALTER TABLE rooms ADD COLUMN creator_id TEXT NOT NULL DEFAULT ''")
+    await db.execute("ALTER TABLE rooms ADD COLUMN allow_anyone_destroy INTEGER NOT NULL DEFAULT 1")
+    await db.execute("ALTER TABLE rooms ADD COLUMN last_activity TEXT NOT NULL DEFAULT ''")
+    # Initialise last_activity avec created_at pour les rooms existantes afin qu'elles
+    # beneficient du delai d'inactivite a partir de leur date de creation
+    await db.execute("UPDATE rooms SET last_activity = created_at WHERE last_activity = ''")
+    await db.execute("UPDATE schema_version SET version = 2")
+    logger.info("Migration schema v2 appliquee")
+
+
 # ---------------------------------------------------------------------------
 # Gestion des rooms
 # ---------------------------------------------------------------------------
 
-async def create_room(password_hash: str, salt: str) -> str:
+async def create_room(
+    password_hash: str,
+    salt: str,
+    creator_id: str,
+    allow_anyone_destroy: bool = True,
+) -> str:
     """
     Cree une nouvelle room avec un identifiant aleatoire cryptographiquement sur.
 
     Args:
-        password_hash: Hash scrypt du mot de passe (format "sel$hash").
-        salt:          Sel hexadecimal pour la derivation de cle cote client.
+        password_hash:        Hash scrypt du mot de passe (format "sel$hash").
+        salt:                 Sel hexadecimal pour la derivation de cle cote client.
+        creator_id:           Identifiant de l'utilisateur qui cree la room.
+        allow_anyone_destroy: Si False, seul le createur peut detruire la room.
 
     Returns:
         L'identifiant unique de la room creee.
     """
     room_id = generate_room_id()
     now = datetime.now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     expires_at = now + timedelta(hours=ROOM_EXPIRY_HOURS)
 
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("PRAGMA foreign_keys=ON")
         await db.execute(
-            "INSERT INTO rooms (id, password_hash, salt, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+            """INSERT INTO rooms
+               (id, password_hash, salt, created_at, expires_at,
+                creator_id, allow_anyone_destroy, last_activity)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 room_id,
                 password_hash,
                 salt,
-                now.strftime("%Y-%m-%d %H:%M:%S"),
+                now_str,
                 expires_at.strftime("%Y-%m-%d %H:%M:%S"),
+                creator_id,
+                1 if allow_anyone_destroy else 0,
+                now_str,  # last_activity initialisee a la creation
             ),
         )
         await db.commit()
@@ -189,6 +222,51 @@ async def get_expired_rooms() -> list[str]:
             "SELECT id FROM rooms WHERE expires_at <= ?", (now,)
         )
         return [row[0] for row in await cursor.fetchall()]
+
+
+async def update_room_activity(room_id: str) -> None:
+    """
+    Met a jour l'horodatage de derniere activite d'une room.
+    Appelee a chaque message envoye pour reinitialiser le delai d'inactivite.
+
+    Args:
+        room_id: Identifiant de la room a mettre a jour.
+    """
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE rooms SET last_activity = ? WHERE id = ?", (now, room_id))
+        await db.commit()
+
+
+async def get_inactive_rooms(
+    active_room_ids: set[str],
+    inactivity_minutes: int = 60,
+) -> list[str]:
+    """
+    Retourne les identifiants des rooms sans activite recente et sans clients connectes.
+    Ne retourne pas les rooms deja expirees (gerees par get_expired_rooms).
+
+    Args:
+        active_room_ids:    Ensemble des room_id ayant au moins un client connecte.
+        inactivity_minutes: Duree d'inactivite au-dela de laquelle une room est detruite.
+
+    Returns:
+        Liste des room_id a detruire pour inactivite.
+    """
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    cutoff = (now - timedelta(minutes=inactivity_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            # Rooms non encore expirees mais inactives depuis plus de inactivity_minutes
+            "SELECT id FROM rooms WHERE last_activity <= ? AND expires_at > ?",
+            (cutoff, now_str),
+        )
+        candidates = [row[0] for row in await cursor.fetchall()]
+
+    # Exclut les rooms avec des clients actifs - elles ne sont pas inactives
+    return [r for r in candidates if r not in active_room_ids]
 
 
 # ---------------------------------------------------------------------------
