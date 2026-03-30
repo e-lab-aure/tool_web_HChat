@@ -13,6 +13,16 @@ import aiosqlite
 
 from config import DB_PATH, DATA_DIR, ROOM_EXPIRY_HOURS
 from utils.logger import logger
+from utils.wordlist import WORDS
+
+
+def generate_room_id() -> str:
+    """
+    Genere un identifiant de room memorable compose de 4 mots francais aleatoires.
+    Format : mot1-mot2-mot3-mot4 (ex: comete-chemise-carpe-castor)
+    Entropy : ~575^4 = 109 milliards de combinaisons (~37 bits).
+    """
+    return "-".join(secrets.choice(WORDS) for _ in range(4))
 
 # Version courante du schema - incrementer a chaque migration
 _SCHEMA_VERSION = 1
@@ -116,7 +126,7 @@ async def create_room(password_hash: str, salt: str) -> str:
     Returns:
         L'identifiant unique de la room creee.
     """
-    room_id = secrets.token_urlsafe(16)
+    room_id = generate_room_id()
     now = datetime.now()
     expires_at = now + timedelta(hours=ROOM_EXPIRY_HOURS)
 
