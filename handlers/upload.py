@@ -1,8 +1,13 @@
 """
-Handlers HTTP pour la gestion des fichiers :
-- upload multipart avec validation de type et de taille
-- liste des fichiers disponibles
-- telechargement securise (protection contre la traversee de repertoire)
+Handlers HTTP pour la gestion des fichiers, scopees par room.
+Chaque room dispose de son propre sous-repertoire dans UPLOAD_DIR.
+
+Routes :
+  POST   /api/rooms/{room_id}/upload
+  GET    /api/rooms/{room_id}/files
+  GET    /api/rooms/{room_id}/uploads/{filename}
+
+Toutes les routes exigent un token de session valide pour la room concernee.
 """
 import json
 from pathlib import Path
@@ -13,25 +18,47 @@ from aiohttp import web
 
 from config import UPLOAD_DIR, MAX_UPLOAD_SIZE, ALLOWED_EXTENSIONS
 from state import AppState
+from utils.auth import verify_token
+from utils.db import register_file, list_room_files
 from utils.logger import logger
+
+
+def _check_token(request: web.Request, room_id: str) -> dict | None:
+    """
+    Extrait et verifie le token de session depuis la query string ou l'en-tete Authorization.
+    Verifie que le token est bien autorise pour la room demandee.
+
+    Returns:
+        Payload dict si valide, None sinon.
+    """
+    token = request.rel_url.query.get("token", "")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    if not token:
+        return None
+    payload = verify_token(token)
+    if not payload or payload.get("rid") != room_id:
+        return None
+    return payload
 
 
 async def upload_file(request: web.Request) -> web.Response:
     """
-    Recoit un fichier via un formulaire multipart/form-data.
+    Recoit un fichier via multipart/form-data et le stocke dans le sous-repertoire
+    de la room apres validation d'extension et de taille.
 
-    Valide :
-    - Que le nom de fichier est present et non vide
-    - Que l'extension est dans la liste blanche
-    - Que la taille ne depasse pas MAX_UPLOAD_SIZE
-
-    En cas de succes, diffuse un evenement 'file_added' via WebSocket
-    a tous les clients connectes.
+    Diffuse un evenement 'file_added' a tous les participants de la room via WebSocket.
 
     Returns:
-        JSON {"ok": true, "filename": "..."} ou {"ok": false, "error": "..."}
+        JSON {"ok": true, "filename": "..."} ou {"ok": false, "error": "..."}.
     """
+    room_id = request.match_info["room_id"]
     state: AppState = request.app["state"]
+
+    if not _check_token(request, room_id):
+        return web.json_response({"ok": False, "error": "Non autorise."}, status=401)
 
     try:
         reader = await request.multipart()
@@ -39,16 +66,18 @@ async def upload_file(request: web.Request) -> web.Response:
         logger.warning("Requete multipart invalide depuis %s : %s", request.remote, exc)
         return web.json_response({"ok": False, "error": "Requete invalide."}, status=400)
 
+    room_dir = UPLOAD_DIR / room_id
+    room_dir.mkdir(parents=True, exist_ok=True)
+
     async for part in reader:
         if not part.filename:
             continue
 
-        # Normalisation du nom de fichier - protege contre la traversee de repertoire
+        # Isole le nom de fichier pour prevenir la traversee de repertoire
         filename = Path(part.filename).name
         if not filename:
             return web.json_response({"ok": False, "error": "Nom de fichier invalide."}, status=400)
 
-        # Validation de l'extension
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         if ext not in ALLOWED_EXTENSIONS:
             logger.warning(
@@ -60,8 +89,7 @@ async def upload_file(request: web.Request) -> web.Response:
                 status=415,
             )
 
-        # Ecriture avec controle continu de la taille
-        fpath = UPLOAD_DIR / filename
+        fpath = room_dir / filename
         total_bytes = 0
         try:
             async with aiofiles.open(fpath, "wb") as f:
@@ -71,32 +99,28 @@ async def upload_file(request: web.Request) -> web.Response:
                         break
                     total_bytes += len(chunk)
                     if total_bytes > MAX_UPLOAD_SIZE:
-                        # Supprime le fichier partiel avant de retourner l'erreur
                         fpath.unlink(missing_ok=True)
                         logger.warning(
-                            "Upload annule depuis %s : fichier trop volumineux (%s, >%d Mo)",
+                            "Upload annule depuis %s : fichier trop volumineux (%s, >%dMo)",
                             request.remote, filename, MAX_UPLOAD_SIZE // 1024 // 1024,
                         )
                         return web.json_response(
-                            {"ok": False, "error": f"Fichier trop volumineux (max {MAX_UPLOAD_SIZE // 1024 // 1024} Mo)."},
+                            {"ok": False, "error": f"Fichier trop volumineux (max {MAX_UPLOAD_SIZE // 1024 // 1024}Mo)."},
                             status=413,
                         )
                     await f.write(chunk)
         except OSError as exc:
-            logger.error("Erreur d'ecriture fichier '%s' : %s", filename, exc)
-            return web.json_response(
-                {"ok": False, "error": "Erreur lors de l'enregistrement."},
-                status=500,
-            )
+            logger.error("Erreur d'ecriture '%s' dans room %s : %s", filename, room_id[:8], exc)
+            return web.json_response({"ok": False, "error": "Erreur lors de l'enregistrement."}, status=500)
 
+        await register_file(room_id, filename)
         logger.info(
-            "Fichier uploade par %s : %s (%d octets)",
-            request.remote, filename, total_bytes,
+            "Fichier uploade dans room %s par %s : %s (%d octets)",
+            room_id[:8], request.remote, filename, total_bytes,
         )
 
-        # Notifie tous les clients connectes du nouvel upload via WebSocket
         event = json.dumps({"type": "file_added", "filename": filename})
-        await state.broadcast(event)
+        await state.broadcast_to_room(room_id, event)
 
         return web.json_response({"ok": True, "filename": filename})
 
@@ -105,30 +129,35 @@ async def upload_file(request: web.Request) -> web.Response:
 
 async def list_files(request: web.Request) -> web.Response:
     """
-    Retourne la liste JSON des fichiers disponibles dans UPLOAD_DIR,
-    triee par nom et sans le placeholder .gitkeep.
+    Retourne la liste JSON des fichiers disponibles dans la room.
     """
+    room_id = request.match_info["room_id"]
+
+    if not _check_token(request, room_id):
+        return web.json_response({"error": "Non autorise."}, status=401)
+
     try:
-        files = sorted(
-            f.name
-            for f in UPLOAD_DIR.iterdir()
-            if f.is_file() and f.name != ".gitkeep"
-        )
+        files = await list_room_files(room_id)
         return web.json_response(files)
-    except OSError as exc:
-        logger.error("Erreur de lecture du repertoire uploads : %s", exc)
+    except Exception as exc:
+        logger.error("Erreur lecture fichiers room %s : %s", room_id[:8], exc)
         return web.Response(status=500, text="Erreur interne.")
 
 
 async def serve_file(request: web.Request) -> web.Response:
     """
-    Sert un fichier depuis UPLOAD_DIR pour le telechargement.
-    Protege contre la traversee de repertoire en isolant le nom de fichier.
+    Sert un fichier depuis le sous-repertoire de la room.
+    Protege contre la traversee de repertoire.
     """
-    raw_name = unquote(request.match_info["filename"])
-    filename = Path(raw_name).name  # Elimine tout prefixe de chemin (ex: ../../etc/passwd)
+    room_id = request.match_info["room_id"]
 
-    filepath = UPLOAD_DIR / filename
+    if not _check_token(request, room_id):
+        return web.Response(status=401, text="Non autorise.")
+
+    raw_name = unquote(request.match_info["filename"])
+    filename = Path(raw_name).name  # Elimine tout prefixe de chemin
+
+    filepath = UPLOAD_DIR / room_id / filename
     if not filepath.exists() or not filepath.is_file():
         return web.Response(status=404, text="Fichier introuvable.")
 

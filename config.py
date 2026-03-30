@@ -57,6 +57,24 @@ RATE_LIMIT_MESSAGES: int = int(os.environ.get("RATE_LIMIT_MESSAGES", 30))
 RATE_LIMIT_WINDOW: int = int(os.environ.get("RATE_LIMIT_WINDOW", 60))
 
 # ---------------------------------------------------------------------------
+# Securite des rooms
+# ---------------------------------------------------------------------------
+import secrets as _secrets
+
+# Cle secrete pour signer les tokens de session.
+# OBLIGATOIRE en production : definir dans .env avec une valeur aleatoire forte.
+# Generer avec : python -c "import secrets; print(secrets.token_hex(32))"
+# ATTENTION : si absent, une cle ephemere est generee a chaque demarrage,
+# ce qui invalide tous les tokens existants apres redemarrage.
+SECRET_KEY: str = os.environ.get("SECRET_KEY", _secrets.token_hex(32))
+
+# Duree de vie des rooms en heures (defaut : 24h)
+ROOM_EXPIRY_HOURS: int = int(os.environ.get("ROOM_EXPIRY_HOURS", 24))
+
+# Duree de validite des tokens de session en heures
+SESSION_EXPIRY_HOURS: int = int(os.environ.get("SESSION_EXPIRY_HOURS", 8))
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 LOG_FILE: str = os.environ.get("LOG_FILE", "chat.log")

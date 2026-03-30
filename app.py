@@ -1,102 +1,109 @@
 """
-Fabrique de l'application aiohttp.
-Configure le middleware de securite, les routes HTTP/WS
-et les hooks de cycle de vie (demarrage / arret).
+Factory de l'application aiohttp.
+Configure les middlewares de securite, les routes et les taches de fond.
 """
 from aiohttp import web
 
-from config import UPLOAD_DIR, DATA_DIR
+from config import STATIC_DIR, UPLOAD_DIR, DATA_DIR
 from state import AppState
-from handlers.pages import index
-from handlers.ws import websocket_handler
-from handlers.upload import upload_file, list_files, serve_file
 from utils.db import init_db
+from utils.cleanup import cleanup_ctx
 from utils.logger import logger
 
+from handlers.pages import index, room_page
+from handlers.ws import websocket_handler
+from handlers.upload import upload_file, list_files, serve_file
+from handlers.rooms import handle_create_room, handle_join_room, handle_destroy_room
 
-# ---------------------------------------------------------------------------
-# Middleware de securite
-# ---------------------------------------------------------------------------
 
 @web.middleware
 async def security_headers(request: web.Request, handler) -> web.Response:
     """
-    Injecte les en-tetes de securite HTTP sur toutes les reponses.
-    Protege contre le clickjacking, le sniffing de type MIME et le XSS reflechi.
-    Les reponses WebSocket (deja envoyees lors du handshake) sont ignorees.
+    Ajoute les en-tetes de securite HTTP a chaque reponse.
+    Permet les scripts inline et eval pour le chiffrement Web Crypto dans le navigateur.
     """
     response = await handler(request)
-
-    # WebSocketResponse envoie ses headers lors du prepare() dans le handler ;
-    # tenter de les modifier apres coup leve une RuntimeError.
-    if isinstance(response, web.WebSocketResponse):
-        return response
-
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    # CSP permissif sur les scripts pour autoriser Web Crypto API et les inline scripts
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
         "style-src 'self' 'unsafe-inline'; "
-        "connect-src 'self' ws: wss:; "
         "img-src 'self' data: blob:; "
-        "font-src 'self'; "
-        "frame-ancestors 'none';"
+        "connect-src 'self' ws: wss:; "
+        "font-src 'self' data:;"
     )
     return response
 
 
-# ---------------------------------------------------------------------------
-# Hooks de cycle de vie
-# ---------------------------------------------------------------------------
+def _register_routes(app: web.Application) -> None:
+    """Enregistre toutes les routes de l'application."""
+    # Pages HTML
+    app.router.add_get("/",                   index)
+    app.router.add_get("/room/{room_id}",      room_page)
 
-async def on_startup(app: web.Application) -> None:
-    """
-    Initialise les ressources necessaires au demarrage :
-    - Cree les repertoires de donnees si absents
-    - Initialise la base de donnees SQLite
-    """
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    await init_db()
-    logger.info("Application '%s' demarree", app["config_name"])
+    # API REST rooms
+    app.router.add_post("/api/rooms",                       handle_create_room)
+    app.router.add_post("/api/rooms/{room_id}/join",        handle_join_room)
+    app.router.add_post("/api/rooms/{room_id}/destroy",     handle_destroy_room)
 
+    # WebSocket (token en query param)
+    app.router.add_get("/ws/{room_id}",        websocket_handler)
 
-async def on_cleanup(app: web.Application) -> None:
-    """Nettoyage des ressources a l'arret propre du serveur."""
-    logger.info("Application arretee proprement")
+    # Fichiers par room
+    app.router.add_post("/api/rooms/{room_id}/upload",              upload_file)
+    app.router.add_get( "/api/rooms/{room_id}/files",               list_files)
+    app.router.add_get( "/api/rooms/{room_id}/uploads/{filename}",  serve_file)
 
+    # Fichiers statiques (CSS, JS, images)
+    app.router.add_static("/static", STATIC_DIR)
 
-# ---------------------------------------------------------------------------
-# Fabrique principale
-# ---------------------------------------------------------------------------
 
 def create_app() -> web.Application:
     """
-    Cree, configure et retourne l'instance aiohttp prete a etre lancee.
-    Cette fonction est aussi le point d'entree pour les tests unitaires.
-    """
-    from config import APP_NAME
+    Cree et configure l'application aiohttp.
 
+    Initialise :
+    - Les middlewares de securite
+    - L'etat global (connexions WS)
+    - La base de donnees SQLite
+    - La tache de nettoyage des rooms expirees
+    - Toutes les routes
+
+    Returns:
+        Instance web.Application prete a etre servie.
+    """
     app = web.Application(middlewares=[security_headers])
 
-    # Etat partage accessible depuis tous les handlers via request.app["state"]
     app["state"] = AppState()
-    app["config_name"] = APP_NAME
 
-    # Routes
-    app.add_routes([
-        web.get("/",                  index),
-        web.get("/ws",                websocket_handler),
-        web.post("/upload",           upload_file),
-        web.get("/files",             list_files),
-        web.get("/uploads/{filename}", serve_file),
-    ])
+    # Cree les repertoires de donnees si absents
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Hooks
+    # Initialisation de la base de donnees au demarrage
+    async def on_startup(app: web.Application) -> None:
+        await init_db()
+        logger.info("Application demarree.")
+
+    async def on_cleanup(app: web.Application) -> None:
+        # Ferme proprement toutes les connexions WS actives
+        state: AppState = app["state"]
+        for user in list(state._connections.values()):
+            try:
+                await user.ws.close()
+            except Exception:
+                pass
+        logger.info("Application arretee.")
+
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
 
+    # Tache de fond pour l'expiration automatique des rooms
+    app.cleanup_ctx.append(cleanup_ctx)
+
+    _register_routes(app)
     return app
