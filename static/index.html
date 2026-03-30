@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HChat</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --sidebar-bg:   #1e1e2e;
+      --sidebar-text: #cdd6f4;
+      --sidebar-muted:#6c7086;
+      --header-bg:    #181825;
+      --header-text:  #cdd6f4;
+      --chat-bg:      #ffffff;
+      --mine-bg:      #007bff;
+      --mine-text:    #ffffff;
+      --other-bg:     #e9ecef;
+      --other-text:   #212529;
+      --system-color: #868e96;
+      --accent:       #007bff;
+      --accent-hover: #0056b3;
+      --border:       #dee2e6;
+      --files-bg:     #f8f9fa;
+      --radius:       10px;
+      --radius-sm:    6px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f2f5;
+      color: #212529;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ------------------------------------------------------------------
+     * Modal d'identification
+     * ------------------------------------------------------------------ */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+    }
+    .modal-overlay.hidden { display: none; }
+
+    .modal {
+      background: #fff;
+      border-radius: 16px;
+      padding: 40px 36px;
+      width: 360px;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.25);
+      text-align: center;
+    }
+    .modal h2 { font-size: 22px; color: #1a1a2e; margin-bottom: 6px; }
+    .modal p  { font-size: 14px; color: #6c757d; margin-bottom: 24px; }
+
+    .modal input[type="text"] {
+      width: 100%; padding: 12px 14px;
+      border: 2px solid var(--border); border-radius: var(--radius-sm);
+      font-size: 15px; outline: none;
+      transition: border-color 0.2s; margin-bottom: 12px;
+    }
+    .modal input[type="text"]:focus { border-color: var(--accent); }
+
+    .btn-primary {
+      width: 100%; padding: 12px;
+      background: var(--accent); color: #fff;
+      border: none; border-radius: var(--radius-sm);
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-primary:hover  { background: var(--accent-hover); }
+    .btn-primary:disabled { background: #adb5bd; cursor: not-allowed; }
+
+    /* ------------------------------------------------------------------
+     * Layout principal
+     * ------------------------------------------------------------------ */
+    .app { display: flex; flex-direction: column; height: 100vh; }
+    .app.hidden { display: none; }
+
+    .header {
+      background: var(--header-bg);
+      color: var(--header-text);
+      height: 52px;
+      padding: 0 20px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0; z-index: 10;
+    }
+    .header-title { font-size: 17px; font-weight: 700; letter-spacing: 0.4px; }
+
+    .header-right { display: flex; align-items: center; gap: 12px; }
+    .conn-badge {
+      font-size: 11px; font-weight: 600; padding: 3px 10px;
+      border-radius: 12px; text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .conn-badge.connected    { background: #28a745; color: #fff; }
+    .conn-badge.disconnected { background: #dc3545; color: #fff; }
+    .conn-badge.connecting   { background: #fd7e14; color: #fff; }
+    .my-name { font-size: 13px; color: #adb5bd; }
+
+    .main { display: flex; flex: 1; min-height: 0; }
+
+    /* ------------------------------------------------------------------
+     * Sidebar gauche : utilisateurs en ligne
+     * ------------------------------------------------------------------ */
+    .sidebar {
+      width: 200px; flex-shrink: 0;
+      background: var(--sidebar-bg);
+      color: var(--sidebar-text);
+      padding: 16px 0; overflow-y: auto;
+    }
+    .section-title {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.2px; color: var(--sidebar-muted);
+      padding: 0 14px 8px;
+    }
+    .user-list { list-style: none; }
+    .user-item {
+      padding: 5px 14px;
+      font-size: 13px; display: flex; align-items: center; gap: 8px;
+    }
+    .user-item::before {
+      content: '';
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #28a745; flex-shrink: 0;
+    }
+    .user-item.me { color: #a6e3a1; font-weight: 600; }
+
+    /* ------------------------------------------------------------------
+     * Zone de chat centrale
+     * ------------------------------------------------------------------ */
+    .chat-area {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column;
+      background: var(--chat-bg);
+    }
+
+    .chat {
+      flex: 1; overflow-y: auto;
+      padding: 16px 20px;
+      display: flex; flex-direction: column;
+      gap: 2px;
+    }
+    .chat::-webkit-scrollbar { width: 5px; }
+    .chat::-webkit-scrollbar-thumb { background: #dee2e6; border-radius: 3px; }
+
+    /* Groupes de messages consecutifs du meme expediteur */
+    .msg-group { display: flex; flex-direction: column; margin-bottom: 10px; }
+    .msg-group.mine  { align-items: flex-end; }
+    .msg-group.other { align-items: flex-start; }
+
+    .msg-sender {
+      font-size: 11px; color: #868e96;
+      padding: 0 14px; margin-bottom: 3px;
+    }
+    .msg-group.mine .msg-sender { text-align: right; }
+
+    .message {
+      max-width: 72%;
+      padding: 9px 13px;
+      border-radius: 14px;
+      display: inline-block;
+      position: relative;
+    }
+    .msg-group.mine  .message { background: var(--mine-bg);  color: var(--mine-text);  border-bottom-right-radius: 4px; }
+    .msg-group.other .message { background: var(--other-bg); color: var(--other-text); border-bottom-left-radius: 4px; }
+
+    .msg-content { font-size: 14px; line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
+    .msg-content * { max-width: 100%; }
+    .msg-group.mine  .msg-content a { color: #cce5ff; }
+    .msg-group.other .msg-content a { color: var(--accent); }
+    .msg-content code {
+      background: rgba(0,0,0,0.1); padding: 1px 5px;
+      border-radius: 4px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px;
+    }
+    .msg-group.mine .msg-content code { background: rgba(255,255,255,0.2); }
+    .msg-content pre {
+      background: rgba(0,0,0,0.07); padding: 8px 10px;
+      border-radius: 6px; overflow-x: auto; margin: 4px 0;
+      font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px;
+    }
+    .msg-group.mine .msg-content pre { background: rgba(255,255,255,0.15); }
+
+    .msg-meta {
+      display: flex; align-items: center; gap: 4px;
+      margin-top: 3px; justify-content: flex-end;
+    }
+    .msg-time { font-size: 10px; opacity: 0.55; }
+
+    .copy-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 12px; opacity: 0; padding: 0 2px;
+      transition: opacity 0.15s; line-height: 1;
+    }
+    .message:hover .copy-btn { opacity: 0.6; }
+    .copy-btn:hover { opacity: 1 !important; }
+
+    /* Message systeme (rejoindre / quitter) */
+    .system-msg {
+      text-align: center; font-size: 12px; font-style: italic;
+      color: var(--system-color); padding: 3px 0; margin: 4px 0;
+    }
+
+    /* Indicateur de frappe */
+    .typing-bar {
+      padding: 2px 20px 6px;
+      font-size: 12px; color: #868e96; font-style: italic;
+      min-height: 22px;
+    }
+
+    /* ------------------------------------------------------------------
+     * Zone de saisie
+     * ------------------------------------------------------------------ */
+    .input-area {
+      padding: 10px 16px 14px;
+      border-top: 1px solid var(--border);
+      background: var(--chat-bg);
+    }
+    .input-toolbar {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 8px;
+    }
+    .rich-label {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 12px; color: #868e96; cursor: pointer;
+      user-select: none;
+    }
+    .rich-label input { cursor: pointer; margin: 0; }
+    .icon-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 15px; padding: 2px; line-height: 1;
+      opacity: 0.45; transition: opacity 0.2s;
+    }
+    .icon-btn:hover, .icon-btn.active { opacity: 1; }
+
+    .input-row { display: flex; gap: 8px; align-items: flex-end; }
+
+    .msg-input {
+      flex: 1;
+      padding: 10px 13px;
+      min-height: 42px; max-height: 180px; overflow-y: auto;
+      border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+      background: #fff;
+      font-family: inherit; font-size: 14px;
+      outline: none; white-space: pre-wrap; word-break: break-word;
+      transition: border-color 0.2s;
+    }
+    .msg-input:focus { border-color: var(--accent); }
+    .msg-input:empty::before {
+      content: attr(data-placeholder);
+      color: #adb5bd; pointer-events: none;
+    }
+    .msg-input code {
+      background: #f0f0f0; padding: 1px 5px;
+      border-radius: 4px; font-family: monospace; font-size: 13px;
+    }
+    .msg-input pre {
+      background: #f0f0f0; padding: 8px; border-radius: 6px;
+      font-family: monospace; font-size: 13px; overflow-x: auto; margin: 4px 0;
+    }
+
+    .send-btn {
+      padding: 10px 18px; flex-shrink: 0;
+      background: var(--accent); color: #fff;
+      border: none; border-radius: var(--radius-sm);
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: background 0.2s; align-self: flex-end;
+    }
+    .send-btn:hover    { background: var(--accent-hover); }
+    .send-btn:disabled { background: #adb5bd; cursor: not-allowed; }
+
+    /* ------------------------------------------------------------------
+     * Panneau fichiers (droite)
+     * ------------------------------------------------------------------ */
+    .files-panel {
+      width: 220px; flex-shrink: 0;
+      background: var(--files-bg);
+      border-left: 1px solid var(--border);
+      padding: 16px 12px;
+      display: flex; flex-direction: column; gap: 8px;
+      overflow-y: auto;
+    }
+    .files-panel .section-title { color: #495057; padding: 0 2px 4px; }
+
+    .upload-zone {
+      border: 2px dashed var(--border); border-radius: var(--radius-sm);
+      padding: 10px; text-align: center;
+      cursor: pointer; font-size: 13px; color: #868e96;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .upload-zone:hover { border-color: var(--accent); color: var(--accent); }
+    .file-input { display: none; }
+
+    .upload-status { font-size: 12px; min-height: 16px; }
+    .upload-status.error   { color: #dc3545; }
+    .upload-status.success { color: #28a745; }
+
+    .file-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+    .file-item a {
+      display: block; padding: 7px 9px;
+      background: #fff; border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      text-decoration: none; color: #495057;
+      font-size: 12px; word-break: break-all;
+      transition: background 0.15s, color 0.15s;
+    }
+    .file-item a:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ------------------------------------------------------------------
+     * Responsive : masque les panneaux lateraux sur petits ecrans
+     * ------------------------------------------------------------------ */
+    @media (max-width: 800px) {
+      .sidebar, .files-panel { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ======================================================
+     Modal : choix du nom d'utilisateur
+     ====================================================== -->
+<div id="modal-overlay" class="modal-overlay">
+  <div class="modal">
+    <h2>💬 HChat</h2>
+    <p>Choisissez un nom pour rejoindre le chat.</p>
+    <input type="text" id="username-input" placeholder="Votre nom..." maxlength="32" autocomplete="off">
+    <button class="btn-primary" id="join-btn">Rejoindre</button>
+  </div>
+</div>
+
+<!-- ======================================================
+     Application principale
+     ====================================================== -->
+<div id="app" class="app hidden">
+
+  <header class="header">
+    <span class="header-title">💬 HChat</span>
+    <div class="header-right">
+      <span id="conn-badge" class="conn-badge connecting">Connexion...</span>
+      <span id="my-name" class="my-name"></span>
+    </div>
+  </header>
+
+  <div class="main">
+
+    <!-- Utilisateurs en ligne -->
+    <aside class="sidebar">
+      <div class="section-title">En ligne (<span id="user-count">0</span>)</div>
+      <ul id="user-list" class="user-list"></ul>
+    </aside>
+
+    <!-- Zone de chat -->
+    <section class="chat-area">
+      <div id="chat" class="chat"></div>
+      <div id="typing-bar" class="typing-bar"></div>
+      <div class="input-area">
+        <div class="input-toolbar">
+          <label class="rich-label">
+            <input type="checkbox" id="richToggle" checked>
+            Formatage riche
+          </label>
+          <button class="icon-btn" id="notifBtn" title="Activer les notifications navigateur">🔔</button>
+        </div>
+        <div class="input-row">
+          <div id="msg" class="msg-input" contenteditable="true"
+               data-placeholder="Message... (Entree pour envoyer, Maj+Entree pour saut de ligne)"></div>
+          <button id="sendBtn" class="send-btn" disabled>Envoyer</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Fichiers partages -->
+    <aside class="files-panel">
+      <div class="section-title">Fichiers</div>
+      <label class="upload-zone" for="fileInput">+ Ajouter un fichier</label>
+      <input type="file" id="fileInput" class="file-input">
+      <div id="upload-status" class="upload-status"></div>
+      <ul id="file-list" class="file-list"></ul>
+    </aside>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============================================================
+   * Utilitaires generaux
+   * ============================================================ */
+
+  /** Genere un UUID v4. */
+  function generateUUID() {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0;
+      return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+
+  /** Echappe les caracteres HTML dangereux pour un affichage en textContent safe. */
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  /**
+   * Nettoie le HTML colle pour ne garder que les balises inoffensives.
+   * Supprime scripts, styles inline dangereux, javascript: URIs.
+   * Convertit les elements bloc en inline pour homogeneiser le rendu.
+   */
+  function sanitizePasted(html) {
+    var tmp = document.createElement("div");
+    tmp.innerHTML = html;
+
+    tmp.querySelectorAll("script,style,meta,link,head,iframe,object,embed,form,input").forEach(function (el) {
+      el.remove();
+    });
+
+    // Blocs -> inline + <br>
+    var blocks = ["div","p","h1","h2","h3","h4","h5","h6","blockquote","section","article","header","footer","nav","aside","main"];
+    tmp.querySelectorAll(blocks.join(",")).forEach(function (el) {
+      if (el.nextSibling || el.parentNode !== tmp) el.insertAdjacentHTML("afterend", "<br>");
+      while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
+      el.remove();
+    });
+
+    var safeTags = new Set(["b","strong","i","em","u","s","del","code","pre","br","ul","ol","li","a","span","table","tr","td","th"]);
+    var allowedAttrs = { a: ["href"], td: ["colspan","rowspan"], th: ["colspan","rowspan"] };
+
+    tmp.querySelectorAll("*").forEach(function (el) {
+      var tag = el.tagName.toLowerCase();
+      if (!safeTags.has(tag)) {
+        el.replaceWith(document.createTextNode(el.textContent));
+        return;
+      }
+      var allowed = allowedAttrs[tag] || [];
+      Array.from(el.attributes).forEach(function (attr) {
+        if (allowed.indexOf(attr.name) < 0) el.removeAttribute(attr.name);
+      });
+      if (tag === "a") {
+        var href = (el.getAttribute("href") || "").trim();
+        if (/^javascript:/i.test(href)) el.removeAttribute("href");
+      }
+    });
+
+    return tmp.innerHTML
+      .replace(/<br\s*\/?>/gi, "<br>")
+      .replace(/(<br>){3,}/g, "<br><br>")
+      .replace(/^(<br>)+/, "")
+      .replace(/(<br>)+$/, "");
+  }
+
+  /**
+   * Sanitize le HTML recu du serveur avant de l'injecter dans le DOM.
+   * Version allégée : ne convertit pas les blocs, conserve la structure,
+   * mais supprime tout ce qui est dangereux.
+   */
+  function sanitizeReceived(html) {
+    var tmp = document.createElement("div");
+    tmp.innerHTML = html;
+
+    tmp.querySelectorAll("script,style,meta,link,head,iframe,object,embed,form,input").forEach(function (el) {
+      el.remove();
+    });
+
+    var safeTags = new Set(["b","strong","i","em","u","s","del","code","pre","br","ul","ol","li","a","span","table","tr","td","th"]);
+    var allowedAttrs = { a: ["href"], td: ["colspan","rowspan"], th: ["colspan","rowspan"] };
+
+    tmp.querySelectorAll("*").forEach(function (el) {
+      var tag = el.tagName.toLowerCase();
+      if (!safeTags.has(tag)) {
+        el.replaceWith(document.createTextNode(el.textContent));
+        return;
+      }
+      var allowed = allowedAttrs[tag] || [];
+      Array.from(el.attributes).forEach(function (attr) {
+        if (allowed.indexOf(attr.name) < 0) el.removeAttribute(attr.name);
+      });
+      if (tag === "a") {
+        var href = (el.getAttribute("href") || "").trim();
+        if (/^javascript:/i.test(href)) el.removeAttribute("href");
+        else { el.setAttribute("target", "_blank"); el.setAttribute("rel", "noopener noreferrer"); }
+      }
+    });
+
+    return tmp.innerHTML;
+  }
+
+  /* ============================================================
+   * Etat de l'application
+   * ============================================================ */
+
+  var userId   = localStorage.getItem("userId");
+  if (!userId) { userId = generateUUID(); localStorage.setItem("userId", userId); }
+
+  var username = localStorage.getItem("username") || "";
+
+  var ws             = null;
+  var wsRetryDelay   = 1000;
+  var WS_MAX_DELAY   = 30000;
+  var typingTimer    = null;
+  var isTypingSent   = false;
+  var typingUsers    = {};         // userId -> username (utilisateurs en train d'ecrire)
+  var notifEnabled   = false;
+  var lastSenderId   = null;       // Pour regrouper les messages consecutifs
+  var lastGroupEl    = null;
+
+  /* ============================================================
+   * References DOM
+   * ============================================================ */
+
+  var modalOverlay  = document.getElementById("modal-overlay");
+  var usernameInput = document.getElementById("username-input");
+  var joinBtn       = document.getElementById("join-btn");
+  var appEl         = document.getElementById("app");
+  var connBadge     = document.getElementById("conn-badge");
+  var myNameEl      = document.getElementById("my-name");
+  var userCountEl   = document.getElementById("user-count");
+  var userListEl    = document.getElementById("user-list");
+  var chatEl        = document.getElementById("chat");
+  var typingBar     = document.getElementById("typing-bar");
+  var msgInput      = document.getElementById("msg");
+  var sendBtn       = document.getElementById("sendBtn");
+  var richToggle    = document.getElementById("richToggle");
+  var notifBtn      = document.getElementById("notifBtn");
+  var fileInput     = document.getElementById("fileInput");
+  var uploadStatus  = document.getElementById("upload-status");
+  var fileListEl    = document.getElementById("file-list");
+
+  /* ============================================================
+   * Identification initiale
+   * ============================================================ */
+
+  function showApp() {
+    modalOverlay.classList.add("hidden");
+    appEl.classList.remove("hidden");
+    myNameEl.textContent = username;
+    loadFileList();
+    connectWebSocket();
+  }
+
+  if (username) {
+    showApp();
+  } else {
+    usernameInput.focus();
+  }
+
+  function submitUsername() {
+    var name = usernameInput.value.trim().slice(0, 32);
+    if (!name) { usernameInput.focus(); return; }
+    username = name;
+    localStorage.setItem("username", username);
+    showApp();
+  }
+
+  joinBtn.addEventListener("click", submitUsername);
+  usernameInput.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") submitUsername();
+  });
+
+  /* ============================================================
+   * WebSocket - connexion avec reconnexion exponentielle
+   * ============================================================ */
+
+  function connectWebSocket() {
+    setConnStatus("connecting");
+    var protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    ws = new WebSocket(protocol + "//" + location.host + "/ws");
+
+    ws.onopen = function () {
+      wsRetryDelay = 1000;
+      setConnStatus("connected");
+      ws.send(JSON.stringify({ type: "join", userId: userId, username: username }));
+    };
+
+    ws.onmessage = function (event) {
+      var data;
+      try { data = JSON.parse(event.data); } catch (e) { return; }
+      dispatch(data);
+    };
+
+    ws.onclose = function () {
+      setConnStatus("disconnected");
+      scheduleReconnect();
+    };
+
+    ws.onerror = function () {
+      setConnStatus("disconnected");
+    };
+  }
+
+  function scheduleReconnect() {
+    var delay = wsRetryDelay;
+    wsRetryDelay = Math.min(wsRetryDelay * 2, WS_MAX_DELAY);
+    setTimeout(function () {
+      if (!ws || ws.readyState === WebSocket.CLOSED) connectWebSocket();
+    }, delay);
+  }
+
+  function setConnStatus(state) {
+    var labels = { connected: "Connecte", disconnected: "Deconnecte", connecting: "Connexion..." };
+    connBadge.className = "conn-badge " + state;
+    connBadge.textContent = labels[state] || state;
+    sendBtn.disabled = state !== "connected";
+  }
+
+  /* ============================================================
+   * Routeur de messages serveur
+   * ============================================================ */
+
+  function dispatch(data) {
+    switch (data.type) {
+      case "history":
+        data.messages.forEach(function (m) { renderMessage(m, true); });
+        scrollToBottom();
+        break;
+      case "message":
+        renderMessage(data, false);
+        notifyIfAbsent(data);
+        scrollToBottom();
+        break;
+      case "system":
+        renderSystemMsg(data.message);
+        scrollToBottom();
+        break;
+      case "users":
+        renderUserList(data.users);
+        break;
+      case "typing":
+        handleTyping(data);
+        break;
+      case "file_added":
+        addFileEntry(data.filename);
+        break;
+      case "error":
+        setUploadStatus(data.message, "error");
+        break;
+    }
+  }
+
+  /* ============================================================
+   * Rendu des messages
+   * ============================================================ */
+
+  function renderMessage(data, isHistory) {
+    var isMine = data.userId === userId;
+    var sameGroup = data.userId === lastSenderId && lastGroupEl;
+
+    var groupEl;
+    if (!sameGroup) {
+      // Nouveau groupe d'expediteur
+      groupEl = document.createElement("div");
+      groupEl.className = "msg-group " + (isMine ? "mine" : "other");
+
+      if (!isMine) {
+        var senderEl = document.createElement("div");
+        senderEl.className = "msg-sender";
+        senderEl.textContent = data.username || "Inconnu";
+        groupEl.appendChild(senderEl);
+      }
+
+      chatEl.appendChild(groupEl);
+      lastGroupEl = groupEl;
+      lastSenderId = data.userId;
+    } else {
+      groupEl = lastGroupEl;
+    }
+
+    // Bulle de message
+    var msgEl = document.createElement("div");
+    msgEl.className = "message";
+
+    var contentEl = document.createElement("div");
+    contentEl.className = "msg-content";
+    // Double sanitization : le serveur stocke ce que le client a envoye ;
+    // on re-nettoie a la reception pour bloquer tout client malveillant.
+    var safeContent = sanitizeReceived(data.content || "");
+    contentEl.innerHTML = safeContent || escapeHtml(data.plain || "");
+
+    var metaEl = document.createElement("div");
+    metaEl.className = "msg-meta";
+
+    var timeEl = document.createElement("span");
+    timeEl.className = "msg-time";
+    timeEl.textContent = data.time || "";
+
+    var copyBtn = document.createElement("button");
+    copyBtn.className = "copy-btn";
+    copyBtn.textContent = "📋";
+    copyBtn.title = "Copier";
+    copyBtn.addEventListener("click", function () {
+      copyMessage(data.content || "", data.plain || "");
+    });
+
+    metaEl.appendChild(timeEl);
+    metaEl.appendChild(copyBtn);
+    msgEl.appendChild(contentEl);
+    msgEl.appendChild(metaEl);
+    groupEl.appendChild(msgEl);
+  }
+
+  function renderSystemMsg(text) {
+    // Un message systeme brise le groupement
+    lastSenderId = null;
+    lastGroupEl  = null;
+
+    var el = document.createElement("div");
+    el.className = "system-msg";
+    el.textContent = text;
+    chatEl.appendChild(el);
+  }
+
+  /* ============================================================
+   * Liste des utilisateurs
+   * ============================================================ */
+
+  function renderUserList(users) {
+    userCountEl.textContent = users.length;
+    userListEl.innerHTML = "";
+    users.forEach(function (u) {
+      var li = document.createElement("li");
+      li.className = "user-item" + (u.userId === userId ? " me" : "");
+      li.textContent = u.username + (u.userId === userId ? " (moi)" : "");
+      userListEl.appendChild(li);
+    });
+  }
+
+  /* ============================================================
+   * Indicateur de frappe
+   * ============================================================ */
+
+  function handleTyping(data) {
+    if (data.userId === userId) return;
+    if (data.isTyping) {
+      typingUsers[data.userId] = data.username;
+    } else {
+      delete typingUsers[data.userId];
+    }
+    updateTypingBar();
+  }
+
+  function updateTypingBar() {
+    var names = Object.values(typingUsers);
+    if (names.length === 0) { typingBar.textContent = ""; return; }
+    var display = names.slice(0, 3).map(escapeHtml);
+    typingBar.textContent = names.length === 1
+      ? display[0] + " est en train d'ecrire..."
+      : display.join(", ") + " ecrivent...";
+  }
+
+  function emitTyping(isTyping) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (isTyping === isTypingSent) return;
+    isTypingSent = isTyping;
+    ws.send(JSON.stringify({ type: "typing", userId: userId, username: username, isTyping: isTyping }));
+  }
+
+  msgInput.addEventListener("input", function () {
+    emitTyping(true);
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(function () { emitTyping(false); }, 2000);
+  });
+
+  /* ============================================================
+   * Saisie et envoi de messages
+   * ============================================================ */
+
+  msgInput.addEventListener("paste", function (e) {
+    e.preventDefault();
+    var cd = e.clipboardData || window.clipboardData;
+    var hasHtml = cd.types && Array.prototype.indexOf.call(cd.types, "text/html") >= 0;
+    if (richToggle.checked && hasHtml) {
+      document.execCommand("insertHTML", false, sanitizePasted(cd.getData("text/html")));
+    } else {
+      document.execCommand("insertText", false, cd.getData("text/plain"));
+    }
+  });
+
+  msgInput.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+
+  sendBtn.addEventListener("click", sendMessage);
+
+  function sendMessage() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    var html = msgInput.innerHTML.trim();
+    var text = msgInput.innerText.trim();
+    if (!text) return;
+
+    clearTimeout(typingTimer);
+    emitTyping(false);
+
+    ws.send(JSON.stringify({
+      type:     "message",
+      content:  html,
+      plain:    text,
+      userId:   userId,
+      username: username,
+    }));
+    msgInput.innerHTML = "";
+  }
+
+  /* ============================================================
+   * Copie de messages (HTML riche ou texte brut)
+   * ============================================================ */
+
+  function copyMessage(richHtml, plainText) {
+    if (richToggle.checked) {
+      if (navigator.clipboard && window.ClipboardItem) {
+        try {
+          navigator.clipboard.write([new ClipboardItem({
+            "text/html":  new Blob([richHtml],  { type: "text/html" }),
+            "text/plain": new Blob([plainText], { type: "text/plain" }),
+          })]).catch(function () { fallbackRichCopy(richHtml); });
+          return;
+        } catch (e) { /* fallback */ }
+      }
+      fallbackRichCopy(richHtml);
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(plainText);
+    } else {
+      fallbackPlainCopy(plainText);
+    }
+  }
+
+  function fallbackRichCopy(html) {
+    var el = document.createElement("div");
+    el.contentEditable = "true";
+    el.innerHTML = html;
+    el.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;";
+    document.body.appendChild(el);
+    var sel = window.getSelection(), range = document.createRange();
+    range.selectNodeContents(el);
+    sel.removeAllRanges(); sel.addRange(range);
+    try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+    sel.removeAllRanges();
+    document.body.removeChild(el);
+  }
+
+  function fallbackPlainCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;";
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+    document.body.removeChild(ta);
+  }
+
+  /* ============================================================
+   * Gestion des fichiers
+   * ============================================================ */
+
+  function loadFileList() {
+    fetch("/files")
+      .then(function (r) { return r.json(); })
+      .then(function (files) { files.forEach(addFileEntry); })
+      .catch(function () { /* echec silencieux */ });
+  }
+
+  fileInput.addEventListener("change", function () {
+    var file = fileInput.files[0];
+    if (!file) return;
+    fileInput.value = "";
+    uploadFile(file);
+  });
+
+  function uploadFile(file) {
+    setUploadStatus("Envoi en cours...", "");
+    var fd = new FormData();
+    fd.append("file", file);
+    fetch("/upload", { method: "POST", body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          setUploadStatus("Fichier envoye.", "success");
+          setTimeout(function () { setUploadStatus("", ""); }, 3000);
+        } else {
+          setUploadStatus(data.error || "Erreur inconnue.", "error");
+        }
+      })
+      .catch(function () { setUploadStatus("Erreur reseau.", "error"); });
+  }
+
+  function addFileEntry(filename) {
+    // Verifie l'absence de doublon avant d'inserer
+    var existing = fileListEl.querySelector("[data-name='" + CSS.escape(filename) + "']");
+    if (existing) return;
+
+    var li = document.createElement("li");
+    li.className = "file-item";
+    li.setAttribute("data-name", filename);
+
+    var a = document.createElement("a");
+    a.href = "/uploads/" + encodeURIComponent(filename);
+    a.textContent = filename;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+
+    li.appendChild(a);
+    fileListEl.appendChild(li);
+  }
+
+  function setUploadStatus(msg, type) {
+    uploadStatus.textContent = msg;
+    uploadStatus.className = "upload-status " + type;
+  }
+
+  /* ============================================================
+   * Notifications navigateur
+   * ============================================================ */
+
+  notifBtn.addEventListener("click", function () {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "granted") {
+      notifEnabled = !notifEnabled;
+      notifBtn.classList.toggle("active", notifEnabled);
+    } else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then(function (perm) {
+        if (perm === "granted") {
+          notifEnabled = true;
+          notifBtn.classList.add("active");
+        }
+      });
+    }
+  });
+
+  function notifyIfAbsent(data) {
+    if (!notifEnabled || document.hasFocus()) return;
+    if (data.userId === userId) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    new Notification(data.username || "HChat", {
+      body: (data.plain || "").slice(0, 100),
+    });
+  }
+
+  /* ============================================================
+   * Scroll automatique
+   * ============================================================ */
+
+  function scrollToBottom() {
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+})();
+</script>
+</body>
+</html>

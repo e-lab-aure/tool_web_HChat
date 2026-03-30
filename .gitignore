@@ -20,6 +20,13 @@ __pycache__/
 uploads/*
 !uploads/.gitkeep
 
+# Base de donnees SQLite et donnees de runtime
+data/*
+!data/.gitkeep
+
+# Fichiers de log
+*.log
+
 # Claude Code
 CLAUDE.md
 
