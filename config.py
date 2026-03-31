@@ -46,7 +46,16 @@ MAX_HISTORY: int = int(os.environ.get("MAX_HISTORY", 100))
 ALLOWED_EXTENSIONS: frozenset = frozenset(
     os.environ.get(
         "ALLOWED_EXTENSIONS",
-        "pdf,xlsx,xls,docx,doc,txt,png,jpg,jpeg,gif,webp,zip,csv,md,py,js,ts,json"
+        "pdf,xlsx,xls,docx,doc,txt,png,jpg,jpeg,gif,webp,zip,csv,md,py,js,ts,json,"
+        "7z,rar,tar,gz,bz2,xz,iso,img,"
+        "pst,ost,eml,msg,"
+        "mp3,mp4,wav,avi,mkv,mov,flac,ogg,webm,"
+        "svg,bmp,tiff,ico,"
+        "xml,yaml,yml,toml,ini,cfg,sh,bat,ps1,sql,html,css,"
+        "pptx,ppt,odt,ods,odp,"
+        "exe,msi,deb,rpm,"
+        "pem,crt,cer,key,"
+        "db,sqlite,sqlite3"
     ).split(",")
 )
 

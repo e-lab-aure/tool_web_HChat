@@ -318,6 +318,48 @@
     .file-item:hover { background: var(--surface2); color: var(--text); }
     .file-item svg { flex-shrink: 0; width: 13px; height: 13px; }
 
+    /* Item d'upload en cours dans la liste de fichiers */
+    .file-item-uploading {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .file-item-uploading-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow: hidden;
+    }
+    .file-item-uploading-header svg { flex-shrink: 0; width: 13px; height: 13px; }
+    .file-item-uploading-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .file-item-uploading-pct {
+      flex-shrink: 0;
+      font-size: 11px;
+      color: var(--accent, #7c6af7);
+    }
+    .file-item-uploading-bar-track {
+      height: 3px;
+      background: var(--surface3);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .file-item-uploading-bar-fill {
+      height: 100%;
+      background: var(--accent, #7c6af7);
+      border-radius: 2px;
+      transition: width .1s linear;
+      width: 0%;
+    }
+
     /* Zone de messages */
     main {
       flex: 1;
@@ -1012,10 +1054,65 @@ function downloadFile(filename) {
   a.click();
 }
 
+/**
+ * Insere un item de progression dans la liste de fichiers pendant l'upload.
+ * Retourne les elements DOM fill et pct pour les mettre a jour en cours de route.
+ */
+function appendUploadingItem(filename) {
+  const list = document.getElementById("file-list");
+
+  const item = document.createElement("div");
+  item.className = "file-item-uploading";
+  item.dataset.uploading = filename;
+
+  item.innerHTML = `
+    <div class="file-item-uploading-header">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+      </svg>
+      <span class="file-item-uploading-name" title="${esc(filename)}">${esc(filename)}</span>
+      <span class="file-item-uploading-pct">0%</span>
+    </div>
+    <div class="file-item-uploading-bar-track">
+      <div class="file-item-uploading-bar-fill"></div>
+    </div>
+  `;
+
+  list.appendChild(item);
+  list.scrollTop = list.scrollHeight;
+
+  return {
+    fill: item.querySelector(".file-item-uploading-bar-fill"),
+    pct:  item.querySelector(".file-item-uploading-pct"),
+    item,
+  };
+}
+
+/**
+ * Simule la progression de l'upload en animant la barre jusqu'a 90%,
+ * puis la complete a 100% une fois la reponse recue.
+ * Necessite fetch car XHR est bloque par certaines extensions navigateur.
+ */
 async function uploadFile(event) {
   const file = event.target.files[0];
   if (!file) return;
   event.target.value = "";
+
+  const { fill, pct, item } = appendUploadingItem(file.name);
+
+  /* Estimation de la duree : ~500 Ko/s minimum, plafonne a 30s */
+  const estimatedMs = Math.min(Math.max((file.size / 512000) * 1000, 400), 30000);
+  const intervalMs  = 80;
+  const steps       = estimatedMs / intervalMs;
+  let   current     = 0;
+
+  /* Animation de 0 -> 90% pendant l'envoi */
+  const timer = setInterval(() => {
+    current = Math.min(current + (90 / steps), 90);
+    fill.style.width = current.toFixed(1) + "%";
+    pct.textContent  = Math.round(current) + "%";
+  }, intervalMs);
 
   const form = new FormData();
   form.append("file", file, file.name);
@@ -1026,8 +1123,23 @@ async function uploadFile(event) {
       body:   form,
     });
     const data = await res.json();
-    if (!res.ok) showToast(data.error || "Erreur upload.");
+
+    clearInterval(timer);
+
+    if (!res.ok) {
+      item.remove();
+      showToast(data.error || "Erreur upload.");
+      return;
+    }
+
+    /* Completion visuelle rapide avant suppression de l'item */
+    fill.style.transition = "width .15s linear";
+    fill.style.width      = "100%";
+    pct.textContent       = "100%";
+    setTimeout(() => item.remove(), 200);
   } catch {
+    clearInterval(timer);
+    item.remove();
     showToast("Erreur lors de l'envoi du fichier.");
   }
 }
