@@ -17,7 +17,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Serveur
 # ---------------------------------------------------------------------------
-PORT: int = int(os.environ.get("PORT", 5000))
+PORT: int = int(os.environ.get("PORT", 8081))
 HOST: str = os.environ.get("HOST", "0.0.0.0")
 APP_NAME: str = os.environ.get("APP_NAME", "HChat")
 
