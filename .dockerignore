@@ -1,0 +1,51 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs et cache
+*.log
+.cache
+.pytest_cache
+
+# Fichiers de développement
+.claude
+CLAUDE.md
+.env
+chat.log
+.env.local
+
+# Documentation
+README.md
+docs/
+
+# Tests
+tests/
+pytest.ini
+
+# Misc
+.editorconfig
