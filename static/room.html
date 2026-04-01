@@ -432,6 +432,39 @@
     .bubble .time {
       font-size: 10px;
       opacity: .5;
+    }
+    .bubble-content {
+      position: relative;
+    }
+    .bubble-copy-btn {
+      position: absolute;
+      top: -24px;
+      right: 0;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: var(--surface3);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity .15s, transform .15s, background .15s;
+      pointer-events: none;
+    }
+    .bubble-copy-btn:hover {
+      background: var(--surface2);
+      color: var(--text);
+    }
+    .bubble:hover .bubble-copy-btn {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
       float: right;
       margin-left: 8px;
       margin-top: 2px;
@@ -967,8 +1000,28 @@ async function renderMessage(msg, isHistory) {
     const header = (!own && lastGroupEl.children.length === 0)
       ? `<div class="username">${esc(msg.username)}</div>`
       : "";
-    // Eschappe le texte en clair avant affichage
-    bubble.innerHTML = `${header}${esc(plain)}<span class="time">${esc(msg.time)}</span>`;
+
+    const contentDiv = document.createElement("div");
+    contentDiv.className = "bubble-content";
+
+    // Affiche le HTML riche (confiance au contenu chiffre E2E)
+    contentDiv.innerHTML = `${header}${plain}<span class="time">${esc(msg.time)}</span>`;
+
+    // Ajoute le bouton copier
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "bubble-copy-btn";
+    copyBtn.title = "Copier le message";
+    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+    </svg>`;
+    copyBtn.onclick = (e) => {
+      e.stopPropagation();
+      copyBubbleContent(contentDiv);
+    };
+
+    contentDiv.appendChild(copyBtn);
+    bubble.appendChild(contentDiv);
   }
 
   row.appendChild(bubble);
@@ -1250,6 +1303,40 @@ function copyRoomLink() {
       badge.classList.remove("copied");
       badge.textContent = ROOM_ID.slice(0, 12) + "...";
     }, 2000);
+  });
+}
+
+function copyBubbleContent(contentDiv) {
+  // Cree une copie du contenu sans le bouton copier
+  const clone = contentDiv.cloneNode(true);
+  const btn = clone.querySelector(".bubble-copy-btn");
+  if (btn) btn.remove();
+
+  // Copie le HTML riche au clipboard
+  const html = clone.innerHTML;
+  const plainText = clone.textContent;
+
+  const blob = new Blob([html], { type: "text/html" });
+  const rtf = new Blob([plainText], { type: "text/plain" });
+
+  const data = [
+    new ClipboardItem({
+      "text/html": blob,
+      "text/plain": rtf,
+    }),
+  ];
+
+  navigator.clipboard.write(data).then(() => {
+    // Feedback visuel
+    const btn = contentDiv.querySelector(".bubble-copy-btn");
+    if (btn) {
+      const orig = btn.innerHTML;
+      btn.innerHTML = "✓";
+      setTimeout(() => { btn.innerHTML = orig; }, 1500);
+    }
+  }).catch(() => {
+    // Fallback: copie juste le texte brut
+    navigator.clipboard.writeText(plainText);
   });
 }
 
