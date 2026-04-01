@@ -7,6 +7,12 @@ set -e
 
 CONTAINER_NAME="hchat"
 IMAGE_NAME="hchat:latest"
+
+# Charger le fichier .env s'il existe
+if [ -f ".env" ]; then
+    export $(cat .env | grep -v "^#" | xargs)
+fi
+
 PORT="${PORT:-8080}"
 SECRET_KEY="${SECRET_KEY:-}"
 
@@ -65,10 +71,21 @@ start() {
             SECRET_KEY=$(generate_secret)
         fi
 
-        podman run -d \
+        # Construire la liste des options d'environnement
+        ENV_OPTS=""
+        if [ -f ".env" ]; then
+            ENV_OPTS="--env-file .env"
+        fi
+
+        # Passer SECRET_KEY si elle n'est pas dans .env
+        if ! grep -q "^SECRET_KEY=" .env 2>/dev/null; then
+            ENV_OPTS="$ENV_OPTS -e SECRET_KEY=\"$SECRET_KEY\""
+        fi
+
+        eval podman run -d \
             --name $CONTAINER_NAME \
             -p ${PORT}:8080 \
-            -e SECRET_KEY="$SECRET_KEY" \
+            $ENV_OPTS \
             -v "$(pwd)/uploads:/app/uploads" \
             -v "$(pwd)/data:/app/data" \
             -v "$(pwd)/chat.log:/app/chat.log" \

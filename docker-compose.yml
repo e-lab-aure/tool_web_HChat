@@ -5,28 +5,29 @@ services:
     build: .
     container_name: hchat
     ports:
-      - "8080:8080"
+      - "${PORT:-8080}:8080"
+    env_file: .env
     environment:
-      PORT: 8080
-      HOST: 0.0.0.0
-      APP_NAME: HChat
-      UPLOAD_DIR: uploads
-      DATA_DIR: data
-      MAX_UPLOAD_SIZE_MB: 10
-      MAX_MESSAGE_SIZE_KB: 64
-      MAX_HISTORY: 100
-      ALLOWED_EXTENSIONS: pdf,xlsx,xls,docx,doc,txt,png,jpg,jpeg,gif,webp,zip,csv,md,py,js,ts,json,7z,rar,tar,gz,bz2,xz,iso,img,pst,ost,eml,msg,mp3,mp4,wav,avi,mkv,mov,flac,ogg,webm,svg,bmp,tiff,ico,xml,yaml,yml,toml,ini,cfg,sh,bat,ps1,sql,html,css,pptx,ppt,odt,ods,odp,exe,msi,deb,rpm,pem,crt,cer,key,db,sqlite,sqlite3
-      RATE_LIMIT_MESSAGES: 30
-      RATE_LIMIT_WINDOW: 60
+      PORT: ${PORT:-8080}
+      HOST: ${HOST:-0.0.0.0}
+      APP_NAME: ${APP_NAME:-HChat}
+      UPLOAD_DIR: ${UPLOAD_DIR:-uploads}
+      DATA_DIR: ${DATA_DIR:-data}
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-10}
+      MAX_MESSAGE_SIZE_KB: ${MAX_MESSAGE_SIZE_KB:-64}
+      MAX_HISTORY: ${MAX_HISTORY:-100}
+      ALLOWED_EXTENSIONS: ${ALLOWED_EXTENSIONS:-pdf,xlsx,xls,docx,doc,txt,png,jpg,jpeg,gif,webp,zip,csv,md,py,js,ts,json,7z,rar,tar,gz,bz2,xz,iso,img,pst,ost,eml,msg,mp3,mp4,wav,avi,mkv,mov,flac,ogg,webm,svg,bmp,tiff,ico,xml,yaml,yml,toml,ini,cfg,sh,bat,ps1,sql,html,css,pptx,ppt,odt,ods,odp,exe,msi,deb,rpm,pem,crt,cer,key,db,sqlite,sqlite3}
+      RATE_LIMIT_MESSAGES: ${RATE_LIMIT_MESSAGES:-30}
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-60}
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
-      ROOM_EXPIRY_HOURS: 24
-      SESSION_EXPIRY_HOURS: 8
-      LOG_FILE: chat.log
-      LOG_LEVEL: INFO
+      ROOM_EXPIRY_HOURS: ${ROOM_EXPIRY_HOURS:-24}
+      SESSION_EXPIRY_HOURS: ${SESSION_EXPIRY_HOURS:-8}
+      LOG_FILE: ${LOG_FILE:-chat.log}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
-      - ./uploads:/app/uploads
-      - ./data:/app/data
-      - ./chat.log:/app/chat.log
+      - ${UPLOAD_DIR:-./uploads}:/app/uploads
+      - ${DATA_DIR:-./data}:/app/data
+      - ${LOG_FILE:-./chat.log}:/app/chat.log
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]

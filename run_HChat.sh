@@ -10,7 +10,7 @@
 
 set -e
 
-PROJECT_DIR="/opt/tool_HChat"
+PROJECT_DIR="/opt/tool_web_HChat"
 COMMAND="${1:-pull}"
 
 # Couleurs
@@ -97,12 +97,12 @@ Exemples:
     ~/run_HChat.sh pull         # Mise a jour + demarrage
 
 Installation:
-    1. Cloner: git clone <repo> /opt/tool_HChat
+    1. Cloner: git clone <repo> /opt/tool_web_HChat
     2. Creer .env avec SECRET_KEY
     3. Copier ce script: cp run_HChat.sh ~/ && chmod +x ~/run_HChat.sh
     4. Lancer: ~/run_HChat.sh pull
 
-Documentation: $PROJECT_DIR/README.md
+Documentation: /opt/tool_web_HChat/README.md
 EOF
         [ "$COMMAND" = "help" ] && exit 0 || exit 1
         ;;

@@ -50,8 +50,8 @@ chmod +x deploy.sh
 ### 1. Cloner le projet
 
 ```bash
-git clone <repo> /opt/tool_HChat
-cd /opt/tool_HChat
+git clone <repo> /opt/tool_web_HChat
+cd /opt/tool_web_HChat
 ```
 
 ### 2. Générer une clé secrète
@@ -112,7 +112,7 @@ Si vous modifiez `.env` ou le port, utilisez `deploy.sh` directement:
 
 ```bash
 # Depuis le répertoire du projet
-cd /opt/tool_HChat
+cd /opt/tool_web_HChat
 
 ./deploy.sh start           # Démarrer
 ./deploy.sh stop            # Arrêter
