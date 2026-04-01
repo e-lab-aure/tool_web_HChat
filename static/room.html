@@ -1296,13 +1296,16 @@ document.addEventListener("DOMContentLoaded", () => {
 function copyRoomLink() {
   const url = `${location.origin}/room/${ROOM_ID}`;
 
-  // Vérifier que l'API Clipboard est disponible (HTTPS ou localhost)
-  if (!navigator.clipboard) {
-    showToast("Copie non disponible (HTTPS requis)");
-    return;
-  }
+  // Utiliser une textarea temporaire pour copier (marche HTTP + HTTPS)
+  const textarea = document.createElement("textarea");
+  textarea.value = url;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
 
-  navigator.clipboard.writeText(url).then(() => {
+  try {
+    document.execCommand("copy");
     const badge = document.getElementById("room-id-badge");
     badge.classList.add("copied");
     badge.textContent = "Copie !";
@@ -1310,46 +1313,44 @@ function copyRoomLink() {
       badge.classList.remove("copied");
       badge.textContent = ROOM_ID.slice(0, 12) + "...";
     }, 2000);
-  }).catch(() => {
+  } catch {
     showToast("Erreur lors de la copie");
-  });
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function copyBubbleContent(contentDiv) {
-  // Vérifier que l'API Clipboard est disponible
-  if (!navigator.clipboard) {
-    showToast("Copie non disponible (HTTPS requis)");
-    return;
-  }
-
   // Cree une copie du contenu sans le bouton copier
   const clone = contentDiv.cloneNode(true);
   const btn = clone.querySelector(".bubble-copy-btn");
   if (btn) btn.remove();
 
   // Extraire le texte et HTML
-  const html = clone.innerHTML;
   const plainText = clone.textContent;
+  const html = clone.innerHTML;
 
-  // Copier avec fallback
-  const copyTask = async () => {
-    try {
-      const blobHTML = new Blob([html], { type: "text/html" });
-      const blobPlain = new Blob([plainText], { type: "text/plain" });
+  // Créer un conteneur temporaire avec le HTML riche
+  const temp = document.createElement("div");
+  temp.innerHTML = html;
+  temp.style.position = "fixed";
+  temp.style.opacity = "0";
+  temp.style.pointerEvents = "none";
+  document.body.appendChild(temp);
 
-      // Tenter copie riche si l'API supporte
-      if (navigator.clipboard.write) {
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            "text/html": blobHTML,
-            "text/plain": blobPlain,
-          }),
-        ]);
-      } else {
-        // Fallback: texte brut uniquement
-        await navigator.clipboard.writeText(plainText);
-      }
+  try {
+    // Sélectionner le contenu temporaire
+    const range = document.createRange();
+    range.selectNodeContents(temp);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
 
+    // Copier (marche HTTP + HTTPS)
+    const success = document.execCommand("copy");
+    sel.removeAllRanges();
+
+    if (success) {
       // Feedback visuel
       const copyBtn = contentDiv.querySelector(".bubble-copy-btn");
       if (copyBtn) {
@@ -1357,17 +1358,14 @@ function copyBubbleContent(contentDiv) {
         copyBtn.innerHTML = "✓";
         setTimeout(() => { copyBtn.innerHTML = orig; }, 1500);
       }
-    } catch {
-      // Fallback final: juste le texte brut
-      try {
-        await navigator.clipboard.writeText(plainText);
-      } catch {
-        showToast("Erreur lors de la copie");
-      }
+    } else {
+      showToast("Erreur lors de la copie");
     }
-  };
-
-  copyTask();
+  } catch {
+    showToast("Erreur lors de la copie");
+  } finally {
+    document.body.removeChild(temp);
+  }
 }
 
 function showConfirmDestroy() { document.getElementById("confirm-modal").classList.add("visible"); }
