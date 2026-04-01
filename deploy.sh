@@ -13,7 +13,7 @@ if [ -f ".env" ]; then
     export $(grep -v "^#" .env | xargs)
 fi
 
-PORT="${PORT:-8080}"
+PORT="${PORT:-8081}"
 
 # Création des répertoires de données
 mkdir -p "$DATA_DIR" "$UPLOAD_DIR"
@@ -36,7 +36,7 @@ echo "[INFO] Démarrage du conteneur $CONTAINER sur le port $PORT..."
 podman run -d \
     --replace \
     --name "$CONTAINER" \
-    -p ${PORT}:8080 \
+    -p ${PORT}:8081 \
     --env-file .env \
     -v "$DATA_DIR":/app/data:z \
     -v "$UPLOAD_DIR":/app/uploads:z \
