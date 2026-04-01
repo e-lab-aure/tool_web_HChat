@@ -2,9 +2,16 @@
 
 ## Prérequis
 
-- Podman ou Docker installé
+- **Podman** (4.0+) ou Docker installé
 - Au minimum 512 MB de RAM disponible
 - Port 8080 libre (ou autre port de votre choix)
+
+## Architecture
+
+Le projet utilise **Containerfile** (best practice Podman) basé sur `python:3.11-slim`:
+- Image légère (~200 MB)
+- Healthcheck intégré
+- Support des volumes persistants pour `uploads/` et `data/`
 
 ## Installation rapide (Podman)
 
@@ -22,10 +29,18 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 Copier la valeur générée.
 
-### 3. Créer le conteneur
+### 3. Construire l'image (Containerfile)
+
+Podman détecte automatiquement `Containerfile`:
 
 ```bash
 podman build -t hchat:latest .
+```
+
+Ou explicitement:
+
+```bash
+podman build -f Containerfile -t hchat:latest .
 ```
 
 ### 4. Lancer le conteneur
@@ -39,7 +54,6 @@ podman run -d \
   -e SECRET_KEY="votre_cle_generee_ici" \
   -v $(pwd)/uploads:/app/uploads \
   -v $(pwd)/data:/app/data \
-  -v $(pwd)/chat.log:/app/chat.log \
   --restart unless-stopped \
   hchat:latest
 ```
@@ -67,9 +81,9 @@ HChat doit être disponible à: **http://your-server:8080**
 
 ---
 
-## Utiliser Docker Compose (optionnel, plus simple)
+## Utiliser Podman Compose (recommandé)
 
-Si vous préférez utiliser `docker-compose` (ou `podman-compose`):
+Best practice Podman avec compose:
 
 ### 1. Générer une clé secrète
 
@@ -77,35 +91,26 @@ Si vous préférez utiliser `docker-compose` (ou `podman-compose`):
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-### 2. Créer un fichier `.env.prod`
+### 2. Lancer avec podman-compose
 
 ```bash
-cp .env.example .env.prod
+export SECRET_KEY="votre_cle_generee_ici"
+podman-compose up -d
 ```
 
-Éditer `.env.prod` et remplacer:
-
-```env
-SECRET_KEY=votre_cle_generee_ici
-PORT=8080
-HOST=0.0.0.0
-```
-
-### 3. Lancer avec compose
+Ou avec docker-compose (compatible):
 
 ```bash
 docker-compose up -d
 ```
 
-Ou avec Podman:
+### 3. Vérifier
 
 ```bash
-podman-compose up -d
-```
+podman-compose ps
+podman-compose logs -f hchat
 
-### 4. Vérifier
-
-```bash
+# Ou avec docker-compose
 docker-compose ps
 docker-compose logs -f hchat
 ```

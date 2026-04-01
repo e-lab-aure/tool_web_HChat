@@ -18,11 +18,14 @@ chmod +x deploy.sh
 # http://localhost:8080
 ```
 
-### 2. Avec Podman directement
+### 2. Avec Podman directement (utilise Containerfile)
 
 ```bash
-# Construire l'image
+# Construire l'image (Podman cherche automatiquement Containerfile)
 podman build -t hchat:latest .
+
+# Ou explicitement:
+podman build -f Containerfile -t hchat:latest .
 
 # Démarrer le conteneur
 podman run -d \
@@ -38,17 +41,20 @@ podman run -d \
 podman logs hchat
 ```
 
-### 3. Avec docker-compose
+### 3. Avec podman-compose ou docker-compose
 
 ```bash
 # Générer une clé secrète
 export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
-# Lancer
+# Lancer avec podman-compose (recommandé)
+podman-compose up -d
+
+# Ou avec docker-compose (compatible)
 docker-compose up -d
 
 # Logs
-docker-compose logs -f hchat
+podman-compose logs -f hchat
 ```
 
 ---
