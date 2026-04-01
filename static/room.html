@@ -531,10 +531,11 @@
       padding: 10px 14px;
       color: var(--text);
       font-size: 14px;
-      resize: none;
       outline: none;
+      min-height: 40px;
       max-height: 120px;
       line-height: 1.5;
+      overflow-y: auto;
       transition: border-color .2s, box-shadow .2s;
       font-family: inherit;
     }
@@ -542,7 +543,10 @@
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-soft);
     }
-    #msg-input::placeholder { color: var(--muted); }
+    #msg-input:empty:before {
+      content: attr(placeholder);
+      color: var(--muted);
+    }
 
     .send-btn {
       width: 36px; height: 36px;
@@ -707,13 +711,17 @@
           </svg>
           <input id="file-input" type="file" onchange="uploadFile(event)">
         </label>
-        <textarea
+        <div
           id="msg-input"
-          rows="1"
+          contenteditable="true"
+          role="textbox"
+          aria-label="Saisir un message"
           placeholder="Message chiffre..."
+          style="outline: none; white-space: pre-wrap; word-wrap: break-word;"
           onkeydown="onKey(event)"
           oninput="onInput()"
-        ></textarea>
+          onpaste="onPaste(event)"
+        ></div>
         <button class="send-btn" onclick="sendMessage()" title="Envoyer">
           <svg viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z" fill-rule="evenodd"/></svg>
         </button>
@@ -1203,16 +1211,17 @@ async function uploadFile(event) {
 
 async function sendMessage() {
   const input = document.getElementById("msg-input");
-  const plain = input.value.trim();
-  if (!plain) return;
+  const html = input.innerHTML.trim();
+  if (!html) return;
 
-  input.value = "";
+  input.innerHTML = "";
   input.style.height = "auto";
   stopTyping();
 
   let content;
   try {
-    content = await encrypt(plain);
+    // Envoyer le HTML riche (avec formatage copie-colle)
+    content = await encrypt(html);
   } catch {
     showToast("Erreur de chiffrement.");
     return;
@@ -1231,9 +1240,12 @@ function onKey(e) {
 }
 
 function onInput() {
-  const ta = document.getElementById("msg-input");
-  ta.style.height = "auto";
-  ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+  const input = document.getElementById("msg-input");
+
+  // Ajuster la hauteur du contenteditable
+  input.style.height = "auto";
+  const height = Math.min(input.scrollHeight, 120);
+  input.style.height = height + "px";
 
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -1250,6 +1262,14 @@ function stopTyping() {
   isTyping = false;
   if (ws && ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ type: "typing", isTyping: false }));
+}
+
+function onPaste(e) {
+  // Laisser le HTML du presse-papiers (avec formatage)
+  // mais nettoyer les styles indésirables
+  e.preventDefault();
+  const html = e.clipboardData.getData("text/html") || e.clipboardData.getData("text/plain");
+  document.execCommand("insertHTML", false, html);
 }
 
 /* ============================================================
