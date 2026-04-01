@@ -65,6 +65,9 @@ start() {
     else
         print_status "Création et démarrage du conteneur..."
 
+        # Créer les répertoires nécessaires
+        mkdir -p uploads data
+
         # Générer une clé si pas fournie
         if [ -z "$SECRET_KEY" ]; then
             print_warning "SECRET_KEY non définie. Génération d'une clé aléatoire..."
@@ -88,7 +91,6 @@ start() {
             $ENV_OPTS \
             -v "$(pwd)/uploads:/app/uploads" \
             -v "$(pwd)/data:/app/data" \
-            -v "$(pwd)/chat.log:/app/chat.log" \
             --restart unless-stopped \
             --health-interval 30s \
             --health-timeout 5s \

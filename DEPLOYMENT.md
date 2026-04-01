@@ -122,7 +122,12 @@ Puis relancer:
 Les volumes sont configurés par défaut:
 - `./uploads` → fichiers uploadés
 - `./data` → base de données SQLite
-- `./chat.log` → logs applicatif
+
+Les logs applicatif sont visibles via:
+
+```bash
+podman logs -f hchat
+```
 
 ### Logs en temps réel
 
