@@ -160,7 +160,6 @@ tool_HChat/
 ├── config.py           # Configuration
 ├── state.py            # État global
 ├── Containerfile       # Image Podman (best practice)
-├── docker-compose.yml  # Compose (podman-compose)
 ├── deploy.sh           # Script de gestion Podman
 ├── run_HChat.sh        # Lanceur rapide (copier dans ~/)
 ├── requirements.txt    # Dépendances

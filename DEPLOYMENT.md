@@ -82,56 +82,39 @@ HChat doit être disponible à: **http://your-server:8080**
 
 ---
 
-## Utiliser Podman Compose (best practice)
-
-### 1. Générer une clé secrète
-
-```bash
-python -c "import secrets; print(secrets.token_hex(32))"
-```
-
-### 2. Lancer avec podman-compose
-
-```bash
-export SECRET_KEY="votre_cle_generee_ici"
-podman-compose up -d
-```
-
-### 3. Vérifier
-
-```bash
-podman-compose ps
-podman-compose logs -f hchat
-```
-
----
-
 ## Configuration avancée
 
 ### Personnaliser le port
 
-Modifier le `docker-compose.yml`:
-
-```yaml
-ports:
-  - "3000:8080"  # Accès via port 3000
-```
-
-Puis relancer avec `podman-compose up -d`.
-
-Ou en ligne de commande:
+En ligne de commande:
 
 ```bash
-podman run -d -p 3000:8080 hchat:latest
+podman run -d -p 3000:8080 \
+  --env-file .env \
+  -v $(pwd)/uploads:/app/uploads \
+  -v $(pwd)/data:/app/data \
+  --restart unless-stopped \
+  hchat:latest
+```
+
+Ou modifier `.env` et utiliser le script:
+
+```bash
+PORT=3000 ./deploy.sh start
 ```
 
 ### Limiter la taille des uploads
 
-Modifier le `docker-compose.yml`:
+Modifier le fichier `.env`:
 
-```yaml
-environment:
-  MAX_UPLOAD_SIZE_MB: 50
+```env
+MAX_UPLOAD_SIZE_MB=50
+```
+
+Puis relancer:
+
+```bash
+./deploy.sh restart
 ```
 
 ### Persister les données
@@ -152,14 +135,9 @@ podman logs -f hchat
 ## Arrêter le conteneur
 
 ```bash
+./deploy.sh stop
 podman stop hchat
 podman rm hchat
-```
-
-Ou avec podman-compose:
-
-```bash
-podman-compose down
 ```
 
 ---

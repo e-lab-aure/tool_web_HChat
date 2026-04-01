@@ -36,15 +36,6 @@ podman logs hchat
 
 ---
 
-### Option 3: Avec Podman Compose
-
-```bash
-podman-compose up -d
-podman-compose logs -f hchat
-```
-
----
-
 ## Commandes Utiles
 
 ```bash
