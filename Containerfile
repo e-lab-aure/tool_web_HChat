@@ -19,16 +19,16 @@ COPY . .
 RUN mkdir -p uploads data
 
 # Exposer le port (8080 par défaut)
-EXPOSE 8080
+EXPOSE 8081
 
 # Variables d'environnement par défaut
-ENV PORT=8080 \
+ENV PORT=8081 \
     HOST=0.0.0.0 \
     PYTHONUNBUFFERED=1
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/ || exit 1
+    CMD curl -f http://localhost:8081/ || exit 1
 
 # Lancer l'application
 CMD ["python", "server.py"]
