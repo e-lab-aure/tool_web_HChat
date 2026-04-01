@@ -2,36 +2,38 @@
 
 ## Installation en 3 minutes
 
-### Option 1: Avec le script `deploy.sh` (Recommandé)
+### Avec le script `deploy.sh`
 
 ```bash
+# Depuis le répertoire du projet
+cd /opt/tool_web_HChat
 chmod +x deploy.sh
-./deploy.sh start
-./deploy.sh logs
+./deploy.sh
 ```
 
 HChat accessible à: **http://localhost:8080**
 
 ---
 
-### Option 2: Avec Podman directement
+### Ou avec Podman directement
 
 ```bash
 # Construire l'image
-podman build -t hchat:latest .
+podman build -t hchat:latest -f Containerfile .
 
 # Lancer le conteneur
 podman run -d \
+  --replace \
   --name hchat \
   -p 8080:8080 \
-  -e SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
-  -v $(pwd)/uploads:/app/uploads \
-  -v $(pwd)/data:/app/data \
+  --env-file .env \
+  -v /opt/tool_web_HChat/data:/app/data:z \
+  -v /opt/tool_web_HChat/uploads:/app/uploads:z \
   --restart unless-stopped \
   hchat:latest
 
 # Vérifier
-podman logs hchat
+podman logs -f hchat
 ```
 
 ---
@@ -40,20 +42,17 @@ podman logs hchat
 
 ```bash
 # Voir les logs
-./deploy.sh logs
 podman logs -f hchat
 
 # Arrêter
-./deploy.sh stop
 podman stop hchat
-
-# Redémarrer
-./deploy.sh restart
-podman restart hchat
-
-# Supprimer
-./deploy.sh remove
 podman rm hchat
+
+# Statut
+podman ps | grep hchat
+
+# Shell du conteneur
+podman exec -it hchat /bin/bash
 ```
 
 ---
@@ -62,52 +61,19 @@ podman rm hchat
 
 ### Port personnalisé
 ```bash
-PORT=3000 ./deploy.sh start
+PORT=3000 ./deploy.sh
 ```
 
-### Clé secrète
+### Variables du fichier `.env`
 ```bash
-# Générer une clé forte
-python3 -c "import secrets; print(secrets.token_hex(32))"
-
-# Utiliser
-SECRET_KEY="..." ./deploy.sh start
-```
-
----
-
-## Vérification
-
-```bash
-# Statut
-podman ps | grep hchat
-
-# Santé du conteneur
-podman inspect hchat | grep -A 5 "Health"
-
-# Processus dans le conteneur
-podman top hchat
-
-# Shell du conteneur
-podman exec -it hchat /bin/bash
-```
-
----
-
-## Dépannage
-
-```bash
-# Conteneur s'arrête immédiatement
-podman logs hchat
-
-# Port en conflit
-PORT=3000 ./deploy.sh start
-
-# Permission denied sur volumes
-chmod 777 uploads data
-
-# Réinitialiser la base de données
-rm -rf data/chat.db && podman restart hchat
+cat > .env << 'EOF'
+PORT=8080
+HOST=0.0.0.0
+SECRET_KEY=votre_cle_ici
+MAX_UPLOAD_SIZE_MB=10
+ROOM_EXPIRY_HOURS=24
+LOG_LEVEL=INFO
+EOF
 ```
 
 ---

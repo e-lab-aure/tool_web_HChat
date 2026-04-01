@@ -93,36 +93,33 @@ HChat est accessible à: **http://your-server:8080**
 ## 🔧 Utilisation du Lanceur
 
 ```bash
-~/run_HChat.sh              # Mise a jour Git + demarrage (defaut)
-~/run_HChat.sh pull         # Idem
-~/run_HChat.sh start        # Demarrer uniquement
-~/run_HChat.sh stop         # Arreter
-~/run_HChat.sh restart      # Redemarrer
+~/run_HChat.sh              # Mise a jour Git + demarrage
 ~/run_HChat.sh logs         # Voir les logs en direct
-~/run_HChat.sh status       # Statut du pod
-~/run_HChat.sh build        # Reconstruire l'image
+~/run_HChat.sh stop         # Arreter le pod
 ~/run_HChat.sh help         # Afficher l'aide
 ```
 
 ---
 
-## 🔧 Commandes Avancées
+## 🔧 Commandes Directes
 
-Si vous modifiez `.env` ou le port, utilisez `deploy.sh` directement:
+Pour lancer directement depuis le répertoire du projet:
 
 ```bash
-# Depuis le répertoire du projet
 cd /opt/tool_web_HChat
 
-./deploy.sh start           # Démarrer
-./deploy.sh stop            # Arrêter
-./deploy.sh restart         # Redémarrer
-./deploy.sh logs            # Voir les logs
-./deploy.sh remove          # Supprimer le conteneur
+# Construire et lancer
+./deploy.sh
 
 # Ou avec variables d'environnement
-PORT=3000 ./deploy.sh start
-SECRET_KEY="..." ./deploy.sh start
+PORT=3000 ./deploy.sh
+
+# Voir les logs
+podman logs -f hchat
+
+# Arrêter
+podman stop hchat
+podman rm hchat
 ```
 
 ---
@@ -223,21 +220,17 @@ tar czf hchat-backup-$(date +%Y%m%d).tar.gz uploads/ data/
 ```bash
 # Pod s'arrête immédiatement
 ~/run_HChat.sh logs         # Voir les logs
-# ou manuellement
-podman logs hchat
 
 # Port en conflit
-PORT=3000 ~/run_HChat.sh    # Avec le lanceur
-# ou
-PORT=3000 ./deploy.sh start # Manuellement
+PORT=3000 ./deploy.sh       # Utiliser un autre port
 
 # Permission denied sur les volumes
-chmod 755 uploads data
+chmod 755 /opt/tool_web_HChat/data
+chmod 755 /opt/tool_web_HChat/uploads
 
 # Reset base de données
-rm -f data/chat.db && ~/run_HChat.sh restart
-# ou
-rm -f data/chat.db && podman restart hchat
+rm -f /opt/tool_web_HChat/data/chat.db
+~/run_HChat.sh              # Redémarrer
 ```
 
 ---

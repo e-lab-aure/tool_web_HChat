@@ -12,100 +12,64 @@
 Le projet utilise **Containerfile** (best practice Podman) basé sur `python:3.11-slim`:
 - Image légère (~200 MB)
 - Healthcheck intégré
-- Support des volumes persistants pour `uploads/` et `data/`
-
-## Installation rapide (Podman)
-
-### 1. Cloner ou télécharger HChat
-
-```bash
-cd /path/to/hchat
-```
-
-### 2. Générer une clé secrète (recommandé)
-
-```bash
-python -c "import secrets; print(secrets.token_hex(32))"
-```
-
-Copier la valeur générée.
-
-### 3. Construire l'image (Containerfile)
-
-Podman détecte automatiquement `Containerfile`:
-
-```bash
-podman build -t hchat:latest .
-```
-
-Ou explicitement:
-
-```bash
-podman build -f Containerfile -t hchat:latest .
-```
-
-### 4. Lancer le conteneur
-
-**Avec une clé secrète forte:**
-
-```bash
-podman run -d \
-  --name hchat \
-  -p 8080:8080 \
-  -e SECRET_KEY="votre_cle_generee_ici" \
-  -v $(pwd)/uploads:/app/uploads \
-  -v $(pwd)/data:/app/data \
-  --restart unless-stopped \
-  hchat:latest
-```
-
-**Ou simplement (développement):**
-
-```bash
-podman run -d \
-  --name hchat \
-  -p 8080:8080 \
-  -v $(pwd)/uploads:/app/uploads \
-  -v $(pwd)/data:/app/data \
-  --restart unless-stopped \
-  hchat:latest
-```
-
-### 5. Vérifier que c'est lancé
-
-```bash
-podman ps | grep hchat
-podman logs hchat
-```
-
-HChat doit être disponible à: **http://your-server:8080**
+- Support des volumes persistants pour `data/` et `uploads/`
 
 ---
 
-## Configuration avancée
+## Installation Serveur
+
+### 1. Cloner le projet
+
+```bash
+git clone <repo> /opt/tool_web_HChat
+cd /opt/tool_web_HChat
+```
+
+### 2. Générer une clé secrète
+
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+### 3. Créer `.env`
+
+```bash
+cat > .env << 'EOF'
+PORT=8080
+HOST=0.0.0.0
+APP_NAME=HChat
+SECRET_KEY=<COLLEZ_VOTRE_CLE_ICI>
+MAX_UPLOAD_SIZE_MB=10
+MAX_MESSAGE_SIZE_KB=64
+MAX_HISTORY=100
+ROOM_EXPIRY_HOURS=24
+SESSION_EXPIRY_HOURS=8
+LOG_LEVEL=INFO
+EOF
+```
+
+### 4. Construire et lancer
+
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+HChat est accessible à: **http://your-server:8080**
+
+---
+
+## Configuration Avancée
 
 ### Personnaliser le port
 
-En ligne de commande:
-
 ```bash
-podman run -d -p 3000:8080 \
-  --env-file .env \
-  -v $(pwd)/uploads:/app/uploads \
-  -v $(pwd)/data:/app/data \
-  --restart unless-stopped \
-  hchat:latest
-```
-
-Ou modifier `.env` et utiliser le script:
-
-```bash
-PORT=3000 ./deploy.sh start
+PORT=3000 ./deploy.sh
 ```
 
 ### Limiter la taille des uploads
 
-Modifier le fichier `.env`:
+Modifier `.env`:
 
 ```env
 MAX_UPLOAD_SIZE_MB=50
@@ -114,14 +78,14 @@ MAX_UPLOAD_SIZE_MB=50
 Puis relancer:
 
 ```bash
-./deploy.sh restart
+./deploy.sh
 ```
 
 ### Persister les données
 
-Les volumes sont configurés par défaut:
-- `./uploads` → fichiers uploadés
-- `./data` → base de données SQLite
+Les volumes sont montés par défaut:
+- `/opt/tool_web_HChat/data` → base de données SQLite
+- `/opt/tool_web_HChat/uploads` → fichiers uploadés
 
 Les logs applicatif sont visibles via:
 
@@ -129,59 +93,41 @@ Les logs applicatif sont visibles via:
 podman logs -f hchat
 ```
 
-### Logs en temps réel
-
-```bash
-podman logs -f hchat
-```
-
 ---
 
-## Arrêter le conteneur
+## Commandes Podman
 
 ```bash
-./deploy.sh stop
+# Arrêter
 podman stop hchat
 podman rm hchat
+
+# Redémarrer
+./deploy.sh
+
+# Voir les logs
+podman logs -f hchat
+
+# Statut
+podman ps | grep hchat
+
+# Santé du pod
+podman inspect hchat --format='{{.State.Health.Status}}'
 ```
 
 ---
 
-## Troubleshooting
+## Proxy Inverse (Nginx)
 
-### Le conteneur s'arrête aussitôt après le lancement
-
-```bash
-podman logs hchat
-```
-
-Vérifier les erreurs. Généralement: port en conflit ou répertoires non accessibles.
-
-### Base de données verrouillée
-
-```bash
-podman exec hchat rm -f /app/data/chat.db
-podman restart hchat
-```
-
-Cela supprime la DB et force une recréation.
-
-### Permission denied sur les volumes
-
-```bash
-chmod 777 uploads data
-```
-
----
-
-## Proxy inverse (Nginx)
-
-Pour exposer HChat derrière un reverse proxy:
+Pour exposer derrière un reverse proxy avec SSL/TLS:
 
 ```nginx
 server {
-    listen 80;
+    listen 443 ssl http2;
     server_name hchat.example.com;
+    
+    ssl_certificate /etc/ssl/certs/cert.pem;
+    ssl_certificate_key /etc/ssl/private/key.pem;
 
     location / {
         proxy_pass http://127.0.0.1:8080;
@@ -198,12 +144,37 @@ server {
 
 ---
 
-## Production Checklist
+## Dépannage
 
-- [ ] Générer une clé `SECRET_KEY` aléatoire forte
-- [ ] Modifier `ROOM_EXPIRY_HOURS` selon vos besoins
-- [ ] Configurer les logs (`LOG_LEVEL`)
-- [ ] Mettre en place un reverse proxy (Nginx)
-- [ ] SSL/TLS activé (pour WebSocket sécurisé: wss://)
-- [ ] Backup régulier des répertoires `uploads/` et `data/`
-- [ ] Limiter les extensions autorisées si nécessaire
+### Le pod s'arrête immédiatement
+
+```bash
+podman logs hchat
+```
+
+Vérifier les messages d'erreur.
+
+### Port déjà utilisé
+
+```bash
+lsof -i :8080
+# ou
+PORT=3000 ./deploy.sh
+```
+
+### Reset base de données
+
+```bash
+rm -f /opt/tool_web_HChat/data/chat.db
+./deploy.sh
+```
+
+---
+
+## Backup des données
+
+```bash
+tar czf hchat-backup-$(date +%Y%m%d).tar.gz \
+  /opt/tool_web_HChat/data \
+  /opt/tool_web_HChat/uploads
+```
