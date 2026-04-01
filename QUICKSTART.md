@@ -1,33 +1,26 @@
-# HChat - Démarrage Rapide avec Podman
+# HChat - Démarrage Rapide (Podman)
 
 ## Installation en 3 minutes
 
-### 1. Avec le script `deploy.sh` (Recommandé)
+### Option 1: Avec le script `deploy.sh` (Recommandé)
 
 ```bash
-# Rendre le script exécutable
 chmod +x deploy.sh
-
-# Construire et démarrer
 ./deploy.sh start
-
-# Afficher les logs
 ./deploy.sh logs
-
-# Accéder à HChat
-# http://localhost:8080
 ```
 
-### 2. Avec Podman directement (utilise Containerfile)
+HChat accessible à: **http://localhost:8080**
+
+---
+
+### Option 2: Avec Podman directement
 
 ```bash
-# Construire l'image (Podman cherche automatiquement Containerfile)
+# Construire l'image
 podman build -t hchat:latest .
 
-# Ou explicitement:
-podman build -f Containerfile -t hchat:latest .
-
-# Démarrer le conteneur
+# Lancer le conteneur
 podman run -d \
   --name hchat \
   -p 8080:8080 \
@@ -37,23 +30,16 @@ podman run -d \
   --restart unless-stopped \
   hchat:latest
 
-# Vérifier que c'est lancé
+# Vérifier
 podman logs hchat
 ```
 
-### 3. Avec podman-compose ou docker-compose
+---
+
+### Option 3: Avec Podman Compose
 
 ```bash
-# Générer une clé secrète
-export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-
-# Lancer avec podman-compose (recommandé)
 podman-compose up -d
-
-# Ou avec docker-compose (compatible)
-docker-compose up -d
-
-# Logs
 podman-compose logs -f hchat
 ```
 
@@ -61,32 +47,22 @@ podman-compose logs -f hchat
 
 ## Commandes Utiles
 
-### Voir les logs
 ```bash
+# Voir les logs
 ./deploy.sh logs
 podman logs -f hchat
-docker-compose logs -f hchat
-```
 
-### Arrêter
-```bash
+# Arrêter
 ./deploy.sh stop
 podman stop hchat
-docker-compose down
-```
 
-### Redémarrer
-```bash
+# Redémarrer
 ./deploy.sh restart
 podman restart hchat
-docker-compose restart hchat
-```
 
-### Supprimer complètement
-```bash
+# Supprimer
 ./deploy.sh remove
 podman rm hchat
-docker-compose down -v
 ```
 
 ---
@@ -95,14 +71,7 @@ docker-compose down -v
 
 ### Port personnalisé
 ```bash
-# Avec deploy.sh
 PORT=3000 ./deploy.sh start
-
-# Avec podman
-podman run -d -p 3000:8080 hchat:latest
-
-# Avec docker-compose
-# Éditer docker-compose.yml et changer les ports
 ```
 
 ### Clé secrète
@@ -110,11 +79,8 @@ podman run -d -p 3000:8080 hchat:latest
 # Générer une clé forte
 python3 -c "import secrets; print(secrets.token_hex(32))"
 
-# Utiliser avec deploy.sh
+# Utiliser
 SECRET_KEY="..." ./deploy.sh start
-
-# Ou la mettre dans .env.production
-# Puis charger avec: export $(cat .env.production | xargs)
 ```
 
 ---
@@ -122,16 +88,16 @@ SECRET_KEY="..." ./deploy.sh start
 ## Vérification
 
 ```bash
-# HChat est accessible à
-http://localhost:8080
+# Statut
+podman ps | grep hchat
 
-# Vérifier la santé du conteneur
+# Santé du conteneur
 podman inspect hchat | grep -A 5 "Health"
 
-# Voir les processus dans le conteneur
+# Processus dans le conteneur
 podman top hchat
 
-# Accéder au shell du conteneur
+# Shell du conteneur
 podman exec -it hchat /bin/bash
 ```
 
@@ -139,31 +105,20 @@ podman exec -it hchat /bin/bash
 
 ## Dépannage
 
-### Le conteneur s'arrête immédiatement
 ```bash
+# Conteneur s'arrête immédiatement
 podman logs hchat
-```
-Vérifier les erreurs dans les logs.
 
-### Port déjà utilisé
-```bash
-# Utiliser un autre port
+# Port en conflit
 PORT=3000 ./deploy.sh start
-```
 
-### Permission denied sur les volumes
-```bash
-chmod 777 uploads data chat.log
-```
+# Permission denied sur volumes
+chmod 777 uploads data
 
-### Réinitialiser la base de données
-```bash
-rm -rf data/chat.db
-podman restart hchat
+# Réinitialiser la base de données
+rm -rf data/chat.db && podman restart hchat
 ```
 
 ---
 
-## Documentation complète
-
-Voir **DEPLOYMENT.md** pour une configuration avancée, proxy inverse, SSL, etc.
+Pour une configuration avancée, voir **DEPLOYMENT.md**

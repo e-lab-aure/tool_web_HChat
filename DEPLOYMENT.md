@@ -1,10 +1,11 @@
-# Déploiement HChat avec Podman
+# Déploiement HChat en Production (Podman)
 
 ## Prérequis
 
-- **Podman** (4.0+) ou Docker installé
+- **Podman** 4.0+
 - Au minimum 512 MB de RAM disponible
 - Port 8080 libre (ou autre port de votre choix)
+- Python 3.11+ (pour générer les clés secrètes localement)
 
 ## Architecture
 
@@ -81,9 +82,7 @@ HChat doit être disponible à: **http://your-server:8080**
 
 ---
 
-## Utiliser Podman Compose (recommandé)
-
-Best practice Podman avec compose:
+## Utiliser Podman Compose (best practice)
 
 ### 1. Générer une clé secrète
 
@@ -98,21 +97,11 @@ export SECRET_KEY="votre_cle_generee_ici"
 podman-compose up -d
 ```
 
-Ou avec docker-compose (compatible):
-
-```bash
-docker-compose up -d
-```
-
 ### 3. Vérifier
 
 ```bash
 podman-compose ps
 podman-compose logs -f hchat
-
-# Ou avec docker-compose
-docker-compose ps
-docker-compose logs -f hchat
 ```
 
 ---
@@ -128,6 +117,8 @@ ports:
   - "3000:8080"  # Accès via port 3000
 ```
 
+Puis relancer avec `podman-compose up -d`.
+
 Ou en ligne de commande:
 
 ```bash
@@ -136,7 +127,7 @@ podman run -d -p 3000:8080 hchat:latest
 
 ### Limiter la taille des uploads
 
-Dans `docker-compose.yml`:
+Modifier le `docker-compose.yml`:
 
 ```yaml
 environment:
@@ -165,10 +156,10 @@ podman stop hchat
 podman rm hchat
 ```
 
-Ou avec compose:
+Ou avec podman-compose:
 
 ```bash
-docker-compose down
+podman-compose down
 ```
 
 ---

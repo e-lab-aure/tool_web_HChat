@@ -44,7 +44,7 @@ generate_secret() {
 
 # Builder l'image
 build() {
-    print_status "Construction de l'image Docker..."
+    print_status "Construction de l'image Podman..."
     podman build -t $IMAGE_NAME .
     print_status "Image construite: $IMAGE_NAME"
 }
@@ -146,10 +146,10 @@ HChat Deployment Script
 Usage: $0 [command]
 
 Commands:
-    build       Construire l'image Docker
-    start       Démarrer le conteneur
-    stop        Arrêter le conteneur
-    remove      Supprimer le conteneur
+    build       Construire l'image Podman (Containerfile)
+    start       Démarrer le conteneur Podman
+    stop        Arrêter le conteneur Podman
+    remove      Supprimer le conteneur Podman
     restart     Reconstruire et redémarrer le conteneur
     logs        Afficher les logs en temps réel
     status      Afficher le statut du conteneur
