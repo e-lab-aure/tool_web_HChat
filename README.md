@@ -25,6 +25,18 @@ python server.py
 
 ### Production (Podman) - Recommandé
 
+**Avec script de lancement rapide:**
+
+```bash
+# Une seule fois: copier dans le home
+cp run_HChat.sh ~/ && chmod +x ~/run_HChat.sh
+
+# Puis lancer (mise a jour Git + demarrage)
+~/run_HChat.sh
+```
+
+**Ou manuellement:**
+
 ```bash
 chmod +x deploy.sh
 ./deploy.sh start
@@ -33,13 +45,13 @@ chmod +x deploy.sh
 
 ---
 
-## 📋 Configuration sur Serveur
+## 📋 Installation Serveur (Rapide)
 
-### 1. Prérequis
+### 1. Cloner le projet
 
 ```bash
-podman --version  # Doit être 4.0+
-mkdir -p uploads data
+git clone <repo> /opt/tool_HChat
+cd /opt/tool_HChat
 ```
 
 ### 2. Générer une clé secrète
@@ -62,43 +74,54 @@ LOG_LEVEL=INFO
 EOF
 ```
 
-### 4. Lancer le Pod
+### 4. Installer le lanceur dans le home
 
 ```bash
-# Avec le script (recommandé)
-./deploy.sh start
-
-# Ou manuellement
-podman build -t hchat:latest .
-podman run -d \
-  --name hchat \
-  -p 8080:8080 \
-  --env-file .env \
-  -v $(pwd)/uploads:/app/uploads \
-  -v $(pwd)/data:/app/data \
-  --restart unless-stopped \
-  hchat:latest
+cp run_HChat.sh ~/ && chmod +x ~/run_HChat.sh
 ```
 
-### 5. Vérifier le statut
+### 5. Lancer (mise à jour + démarrage)
 
 ```bash
-podman logs -f hchat
-# → HChat doit être accessible à http://your-server:8080
+~/run_HChat.sh          # Ou simplement: ~/run_HChat.sh pull
+```
+
+HChat est accessible à: **http://your-server:8080**
+
+---
+
+## 🔧 Utilisation du Lanceur
+
+```bash
+~/run_HChat.sh              # Mise a jour Git + demarrage (defaut)
+~/run_HChat.sh pull         # Idem
+~/run_HChat.sh start        # Demarrer uniquement
+~/run_HChat.sh stop         # Arreter
+~/run_HChat.sh restart      # Redemarrer
+~/run_HChat.sh logs         # Voir les logs en direct
+~/run_HChat.sh status       # Statut du pod
+~/run_HChat.sh build        # Reconstruire l'image
+~/run_HChat.sh help         # Afficher l'aide
 ```
 
 ---
 
-## 🔧 Commandes Utiles
+## 🔧 Commandes Avancées
+
+Si vous modifiez `.env` ou le port, utilisez `deploy.sh` directement:
 
 ```bash
+# Depuis le répertoire du projet
+cd /opt/tool_HChat
+
 ./deploy.sh start           # Démarrer
 ./deploy.sh stop            # Arrêter
 ./deploy.sh restart         # Redémarrer
 ./deploy.sh logs            # Voir les logs
 ./deploy.sh remove          # Supprimer le conteneur
 
-PORT=3000 ./deploy.sh start # Port personnalisé
+# Ou avec variables d'environnement
+PORT=3000 ./deploy.sh start
 SECRET_KEY="..." ./deploy.sh start
 ```
 
@@ -138,7 +161,8 @@ tool_HChat/
 ├── state.py            # État global
 ├── Containerfile       # Image Podman (best practice)
 ├── docker-compose.yml  # Compose (podman-compose)
-├── deploy.sh           # Script de gestion
+├── deploy.sh           # Script de gestion Podman
+├── run_HChat.sh        # Lanceur rapide (copier dans ~/)
 ├── requirements.txt    # Dépendances
 ├── handlers/           # Handlers HTTP/WS
 ├── utils/              # Utilitaires (DB, logs, cleanup)
@@ -199,15 +223,21 @@ tar czf hchat-backup-$(date +%Y%m%d).tar.gz uploads/ data/
 
 ```bash
 # Pod s'arrête immédiatement
+~/run_HChat.sh logs         # Voir les logs
+# ou manuellement
 podman logs hchat
 
 # Port en conflit
-PORT=3000 ./deploy.sh start
+PORT=3000 ~/run_HChat.sh    # Avec le lanceur
+# ou
+PORT=3000 ./deploy.sh start # Manuellement
 
-# Permission denied
+# Permission denied sur les volumes
 chmod 755 uploads data
 
 # Reset base de données
+rm -f data/chat.db && ~/run_HChat.sh restart
+# ou
 rm -f data/chat.db && podman restart hchat
 ```
 
