@@ -33,8 +33,15 @@ podman build -t "$IMAGE" -f Containerfile .
 
 echo "[INFO] Démarrage du conteneur $CONTAINER sur le port $PORT..."
 
+# Arrêt propre de l'ancien conteneur avant remplacement
+# --replace utiliserait le timeout par defaut (10s) de l'ancien conteneur
+if podman container exists "$CONTAINER" 2>/dev/null; then
+    echo "[INFO] Arrêt de l'ancien conteneur (timeout 30s)..."
+    podman stop --time 30 "$CONTAINER" 2>/dev/null || true
+    podman rm "$CONTAINER" 2>/dev/null || true
+fi
+
 podman run -d \
-    --replace \
     --name "$CONTAINER" \
     -p ${PORT}:8081 \
     --env-file .env \
