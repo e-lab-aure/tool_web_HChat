@@ -41,6 +41,7 @@ podman run -d \
     -v "$DATA_DIR":/app/data:z \
     -v "$UPLOAD_DIR":/app/uploads:z \
     --restart unless-stopped \
+    --stop-timeout 30 \
     "$IMAGE"
 
 echo "[OK] HChat démarré - http://localhost:${PORT}"

@@ -93,12 +93,14 @@ def create_app() -> web.Application:
         logger.info("Application demarree.")
 
     async def on_cleanup(app: web.Application) -> None:
-        # Ferme proprement toutes les connexions WS actives
+        # Ferme proprement toutes les connexions WS actives avec un timeout par connexion
+        # pour eviter de bloquer l'arret si un client ne repond pas au close frame.
+        import asyncio
         state: AppState = app["state"]
         for user in list(state._connections.values()):
             try:
-                await user.ws.close()
-            except Exception:
+                await asyncio.wait_for(user.ws.close(), timeout=2.0)
+            except (asyncio.TimeoutError, Exception):
                 pass
         logger.info("Application arretee.")
 
