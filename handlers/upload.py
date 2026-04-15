@@ -12,8 +12,10 @@ Toutes les routes exigent un token de session valide pour la room concernee.
 L'upload utilise un streaming raw (corps HTTP brut, header X-Filename) plutot
 que multipart/form-data, ce qui permet de traiter des fichiers volumineux
 sans les charger entierement en memoire.
+Le telechargement utilise aussi un streaming manuel pour journaliser la progression.
 """
 import json
+import mimetypes
 import time
 from pathlib import Path
 from urllib.parse import unquote
@@ -90,13 +92,21 @@ async def upload_file(request: web.Request) -> web.Response:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         logger.warning(
-            "Upload refuse depuis %s : extension '.%s' non autorisee (%s)",
-            request.remote, ext, filename,
+            "Upload refuse [room %s] depuis %s : extension '.%s' non autorisee (%s)",
+            room_id[:8], request.remote, ext, filename,
         )
         return web.json_response(
             {"ok": False, "error": f"Extension .{ext} non autorisee."},
             status=415,
         )
+
+    # Taille annoncee dans le Content-Length (peut etre absent)
+    content_length = request.headers.get("Content-Length", "?")
+    limit_info = f"limite {MAX_UPLOAD_SIZE // 1024 // 1024}Mo" if MAX_UPLOAD_SIZE > 0 else "illimite"
+    logger.info(
+        "Upload demarre [room %s] depuis %s : %s (Content-Length: %s, %s)",
+        room_id[:8], request.remote, filename, content_length, limit_info,
+    )
 
     room_dir = UPLOAD_DIR / room_id
     room_dir.mkdir(parents=True, exist_ok=True)
@@ -121,8 +131,8 @@ async def upload_file(request: web.Request) -> web.Response:
                     fpath.unlink(missing_ok=True)
                     limit_mb = MAX_UPLOAD_SIZE // 1024 // 1024
                     logger.warning(
-                        "Upload annule depuis %s : fichier trop volumineux (%s, >%dMo)",
-                        request.remote, filename, limit_mb,
+                        "Upload annule [room %s] depuis %s : %s depasse la limite de %dMo",
+                        room_id[:8], request.remote, filename, limit_mb,
                     )
                     return web.json_response(
                         {"ok": False, "error": f"Fichier trop volumineux (max {limit_mb}Mo)."},
@@ -147,7 +157,7 @@ async def upload_file(request: web.Request) -> web.Response:
     elapsed = time.monotonic() - start
     speed = (total_bytes / (1024 * 1024)) / elapsed if elapsed > 0 else 0
     logger.info(
-        "Fichier uploade [room %s] par %s : %s (%.2f Mo en %.2fs, %.2f Mo/s)",
+        "Upload termine [room %s] depuis %s : %s (%.2f Mo en %.2fs, %.2f Mo/s)",
         room_id[:8], request.remote, filename,
         total_bytes / (1024 * 1024), elapsed, speed,
     )
@@ -179,8 +189,10 @@ async def list_files(request: web.Request) -> web.Response:
 
 async def serve_file(request: web.Request) -> web.Response:
     """
-    Sert un fichier depuis le sous-repertoire de la room.
+    Sert un fichier depuis le sous-repertoire de la room en streaming.
     Protege contre la traversee de repertoire.
+    Journalise le debut, la progression (tous les UPLOAD_PROGRESS_LOG_BYTES)
+    et la fin du telechargement pour visibilite dans podman logs.
     """
     room_id = request.match_info["room_id"]
 
@@ -194,4 +206,62 @@ async def serve_file(request: web.Request) -> web.Response:
     if not filepath.exists() or not filepath.is_file():
         return web.Response(status=404, text="Fichier introuvable.")
 
-    return web.FileResponse(filepath)
+    size = filepath.stat().st_size
+    mime_type, _ = mimetypes.guess_type(filename)
+    if mime_type is None:
+        mime_type = "application/octet-stream"
+
+    logger.info(
+        "Telechargement demarre [room %s] depuis %s : %s (%.2f Mo, %s)",
+        room_id[:8], request.remote, filename, size / (1024 * 1024), mime_type,
+    )
+
+    response = web.StreamResponse(headers={
+        "Content-Type": mime_type,
+        "Content-Length": str(size),
+        "Content-Disposition": f'attachment; filename="{filename}"',
+    })
+    await response.prepare(request)
+
+    transferred = 0
+    start = time.monotonic()
+    last_log_threshold = 0
+
+    try:
+        async with aiofiles.open(filepath, "rb") as f:
+            while True:
+                chunk = await f.read(UPLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                await response.write(chunk)
+                transferred += len(chunk)
+
+                # Log de progression tous les UPLOAD_PROGRESS_LOG_BYTES
+                if transferred >= last_log_threshold + UPLOAD_PROGRESS_LOG_BYTES:
+                    last_log_threshold = transferred
+                    elapsed = time.monotonic() - start
+                    speed = (transferred / (1024 * 1024)) / elapsed if elapsed > 0 else 0
+                    pct = (transferred / size * 100) if size > 0 else 0
+                    logger.info(
+                        "Telechargement en cours [room %s] %s -> %s : %d Mo / %.2f Mo (%.0f%%) | %.2f Mo/s",
+                        room_id[:8], filename, request.remote,
+                        transferred // (1024 * 1024), size / (1024 * 1024), pct, speed,
+                    )
+
+    except ConnectionResetError:
+        logger.info(
+            "Telechargement interrompu [room %s] %s par %s (%d Mo sur %.2f Mo transferes)",
+            room_id[:8], filename, request.remote,
+            transferred // (1024 * 1024), size / (1024 * 1024),
+        )
+        return response
+
+    elapsed = time.monotonic() - start
+    speed = (transferred / (1024 * 1024)) / elapsed if elapsed > 0 else 0
+    logger.info(
+        "Telechargement termine [room %s] depuis %s : %s (%.2f Mo en %.2fs, %.2f Mo/s)",
+        room_id[:8], request.remote, filename,
+        transferred / (1024 * 1024), elapsed, speed,
+    )
+
+    return response
