@@ -182,6 +182,10 @@ server {
     ssl_certificate /etc/ssl/certs/cert.pem;
     ssl_certificate_key /etc/ssl/private/key.pem;
 
+    # Limite de taille des uploads - doit correspondre a MAX_UPLOAD_SIZE_MB dans .env
+    # Nginx rejette en amont ; l'app retourne une erreur JSON propre si Nginx laisse passer
+    client_max_body_size 2048m;
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
@@ -191,9 +195,37 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Timeouts pour les gros fichiers (upload/download de plusieurs Go)
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
     }
 }
 ```
+
+### Limite d'upload : aligner Nginx et l'application
+
+Les deux couches doivent avoir la meme valeur pour un comportement coherent :
+
+| Couche | Parametre | Effet si depassé |
+|--------|-----------|-----------------|
+| Nginx | `client_max_body_size` | 413 brut, avant que l'app soit sollicitee |
+| App | `MAX_UPLOAD_SIZE_MB` dans `.env` | 413 JSON avec message lisible cote client |
+
+Configurer les deux a la meme valeur (ex: 2048 Mo) :
+
+```bash
+# .env
+MAX_UPLOAD_SIZE_MB=2048
+```
+
+```nginx
+# Nginx
+client_max_body_size 2048m;
+```
+
+> **Ne pas mettre `0` (illimite) en production** : sans limite, un upload malveillant
+> peut saturer le disque ou la memoire. Choisir une valeur adaptee a l'usage.
 
 ---
 
