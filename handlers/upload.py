@@ -8,15 +8,26 @@ Routes :
   GET    /api/rooms/{room_id}/uploads/{filename}
 
 Toutes les routes exigent un token de session valide pour la room concernee.
+
+L'upload utilise un streaming raw (corps HTTP brut, header X-Filename) plutot
+que multipart/form-data, ce qui permet de traiter des fichiers volumineux
+sans les charger entierement en memoire.
 """
 import json
+import time
 from pathlib import Path
 from urllib.parse import unquote
 
 import aiofiles
 from aiohttp import web
 
-from config import UPLOAD_DIR, MAX_UPLOAD_SIZE, ALLOWED_EXTENSIONS
+from config import (
+    UPLOAD_DIR,
+    MAX_UPLOAD_SIZE,
+    ALLOWED_EXTENSIONS,
+    UPLOAD_CHUNK_SIZE,
+    UPLOAD_PROGRESS_LOG_BYTES,
+)
 from state import AppState
 from utils.auth import verify_token
 from utils.db import register_file, list_room_files
@@ -46,13 +57,18 @@ def _check_token(request: web.Request, room_id: str) -> dict | None:
 
 async def upload_file(request: web.Request) -> web.Response:
     """
-    Recoit un fichier via multipart/form-data et le stocke dans le sous-repertoire
-    de la room apres validation d'extension et de taille.
+    Recoit un fichier via streaming HTTP brut et le stocke dans le sous-repertoire
+    de la room apres validation d'extension.
+
+    Le nom du fichier est transmis dans l'en-tete X-Filename (pas de multipart).
+    Les donnees sont lues par chunks de UPLOAD_CHUNK_SIZE pour limiter
+    l'empreinte memoire, meme pour des fichiers de plusieurs gigaoctets.
 
     Diffuse un evenement 'file_added' a tous les participants de la room via WebSocket.
 
     Returns:
-        JSON {"ok": true, "filename": "..."} ou {"ok": false, "error": "..."}.
+        JSON {"ok": true, "filename": "...", "size": <octets>}
+        ou   {"ok": false, "error": "..."}.
     """
     room_id = request.match_info["room_id"]
     state: AppState = request.app["state"]
@@ -60,71 +76,88 @@ async def upload_file(request: web.Request) -> web.Response:
     if not _check_token(request, room_id):
         return web.json_response({"ok": False, "error": "Non autorise."}, status=401)
 
-    try:
-        reader = await request.multipart()
-    except Exception as exc:
-        logger.warning("Requete multipart invalide depuis %s : %s", request.remote, exc)
-        return web.json_response({"ok": False, "error": "Requete invalide."}, status=400)
+    # Recupere et assainit le nom de fichier transmis dans le header.
+    # Le client encode le nom en URL (encodeURIComponent) pour supporter
+    # les caracteres speciaux et les espaces.
+    raw_name = unquote(request.headers.get("X-Filename", "").strip())
+    if not raw_name:
+        return web.json_response({"ok": False, "error": "Header X-Filename manquant."}, status=400)
+
+    filename = Path(raw_name).name  # Elimine tout prefixe de chemin (traversee de repertoire)
+    if not filename:
+        return web.json_response({"ok": False, "error": "Nom de fichier invalide."}, status=400)
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        logger.warning(
+            "Upload refuse depuis %s : extension '.%s' non autorisee (%s)",
+            request.remote, ext, filename,
+        )
+        return web.json_response(
+            {"ok": False, "error": f"Extension .{ext} non autorisee."},
+            status=415,
+        )
 
     room_dir = UPLOAD_DIR / room_id
     room_dir.mkdir(parents=True, exist_ok=True)
+    fpath = room_dir / filename
 
-    async for part in reader:
-        if not part.filename:
-            continue
+    total_bytes = 0
+    start = time.monotonic()
+    last_log_threshold = 0  # prochain seuil de progression (en octets) pour le log
 
-        # Isole le nom de fichier pour prevenir la traversee de repertoire
-        filename = Path(part.filename).name
-        if not filename:
-            return web.json_response({"ok": False, "error": "Nom de fichier invalide."}, status=400)
+    try:
+        async with aiofiles.open(fpath, "wb") as f:
+            while True:
+                chunk = await request.content.read(UPLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
 
-        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-        if ext not in ALLOWED_EXTENSIONS:
-            logger.warning(
-                "Upload refuse depuis %s : extension '.%s' non autorisee (%s)",
-                request.remote, ext, filename,
-            )
-            return web.json_response(
-                {"ok": False, "error": f"Extension .{ext} non autorisee."},
-                status=415,
-            )
+                await f.write(chunk)
+                total_bytes += len(chunk)
 
-        fpath = room_dir / filename
-        total_bytes = 0
-        try:
-            async with aiofiles.open(fpath, "wb") as f:
-                while True:
-                    chunk = await part.read_chunk()
-                    if not chunk:
-                        break
-                    total_bytes += len(chunk)
-                    if total_bytes > MAX_UPLOAD_SIZE:
-                        fpath.unlink(missing_ok=True)
-                        logger.warning(
-                            "Upload annule depuis %s : fichier trop volumineux (%s, >%dMo)",
-                            request.remote, filename, MAX_UPLOAD_SIZE // 1024 // 1024,
-                        )
-                        return web.json_response(
-                            {"ok": False, "error": f"Fichier trop volumineux (max {MAX_UPLOAD_SIZE // 1024 // 1024}Mo)."},
-                            status=413,
-                        )
-                    await f.write(chunk)
-        except OSError as exc:
-            logger.error("Erreur d'ecriture '%s' dans room %s : %s", filename, room_id[:8], exc)
-            return web.json_response({"ok": False, "error": "Erreur lors de l'enregistrement."}, status=500)
+                # Verifie la limite de taille si elle est definie (MAX_UPLOAD_SIZE > 0)
+                if MAX_UPLOAD_SIZE > 0 and total_bytes > MAX_UPLOAD_SIZE:
+                    fpath.unlink(missing_ok=True)
+                    limit_mb = MAX_UPLOAD_SIZE // 1024 // 1024
+                    logger.warning(
+                        "Upload annule depuis %s : fichier trop volumineux (%s, >%dMo)",
+                        request.remote, filename, limit_mb,
+                    )
+                    return web.json_response(
+                        {"ok": False, "error": f"Fichier trop volumineux (max {limit_mb}Mo)."},
+                        status=413,
+                    )
 
-        await register_file(room_id, filename)
-        logger.info(
-            "Fichier uploade dans room %s par %s : %s (%d octets)",
-            room_id[:8], request.remote, filename, total_bytes,
-        )
+                # Log de progression tous les UPLOAD_PROGRESS_LOG_BYTES
+                if total_bytes >= last_log_threshold + UPLOAD_PROGRESS_LOG_BYTES:
+                    last_log_threshold = total_bytes
+                    elapsed = time.monotonic() - start
+                    speed = (total_bytes / (1024 * 1024)) / elapsed if elapsed > 0 else 0
+                    logger.info(
+                        "Upload en cours [room %s] %s : %d Mo recus | %.2f Mo/s",
+                        room_id[:8], filename, total_bytes // (1024 * 1024), speed,
+                    )
 
-        event = json.dumps({"type": "file_added", "filename": filename})
-        await state.broadcast_to_room(room_id, event)
+    except OSError as exc:
+        fpath.unlink(missing_ok=True)
+        logger.error("Erreur d'ecriture '%s' dans room %s : %s", filename, room_id[:8], exc)
+        return web.json_response({"ok": False, "error": "Erreur lors de l'enregistrement."}, status=500)
 
-        return web.json_response({"ok": True, "filename": filename})
+    elapsed = time.monotonic() - start
+    speed = (total_bytes / (1024 * 1024)) / elapsed if elapsed > 0 else 0
+    logger.info(
+        "Fichier uploade [room %s] par %s : %s (%.2f Mo en %.2fs, %.2f Mo/s)",
+        room_id[:8], request.remote, filename,
+        total_bytes / (1024 * 1024), elapsed, speed,
+    )
 
-    return web.json_response({"ok": False, "error": "Aucun fichier recu."}, status=400)
+    await register_file(room_id, filename)
+
+    event = json.dumps({"type": "file_added", "filename": filename})
+    await state.broadcast_to_room(room_id, event)
+
+    return web.json_response({"ok": True, "filename": filename, "size": total_bytes})
 
 
 async def list_files(request: web.Request) -> web.Response:

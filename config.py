@@ -33,12 +33,20 @@ DB_PATH: Path = DATA_DIR / "chat.db"
 # ---------------------------------------------------------------------------
 # Limites de contenu
 # ---------------------------------------------------------------------------
-# Taille maximale d'un fichier uploade (en octets)
-MAX_UPLOAD_SIZE: int = int(os.environ.get("MAX_UPLOAD_SIZE_MB", 10)) * 1024 * 1024
+# Taille maximale d'un fichier uploade (en octets) - 0 = illimite
+MAX_UPLOAD_SIZE: int = int(os.environ.get("MAX_UPLOAD_SIZE_MB", 4096)) * 1024 * 1024
 # Taille maximale d'un message WebSocket (en octets)
 MAX_MESSAGE_SIZE: int = int(os.environ.get("MAX_MESSAGE_SIZE_KB", 64)) * 1024
 # Nombre de messages charges depuis la BDD pour les nouveaux connectes
 MAX_HISTORY: int = int(os.environ.get("MAX_HISTORY", 100))
+
+# ---------------------------------------------------------------------------
+# Upload par streaming
+# ---------------------------------------------------------------------------
+# Taille de chaque chunk lu depuis le flux HTTP (en octets)
+UPLOAD_CHUNK_SIZE: int = int(os.environ.get("UPLOAD_CHUNK_SIZE_KB", 1024)) * 1024
+# Intervalle de log de progression (en octets) : log tous les N Mo
+UPLOAD_PROGRESS_LOG_BYTES: int = int(os.environ.get("UPLOAD_PROGRESS_LOG_MB", 10)) * 1024 * 1024
 
 # ---------------------------------------------------------------------------
 # Extensions de fichiers autorisees a l'upload

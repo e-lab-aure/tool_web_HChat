@@ -359,6 +359,14 @@
       transition: width .1s linear;
       width: 0%;
     }
+    .file-item-uploading-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--muted);
+      opacity: 0.75;
+      min-height: 14px;
+    }
 
     /* Zone de messages */
     main {
@@ -1138,71 +1146,105 @@ function appendUploadingItem(filename) {
     <div class="file-item-uploading-bar-track">
       <div class="file-item-uploading-bar-fill"></div>
     </div>
+    <div class="file-item-uploading-meta">
+      <span class="file-item-uploading-speed"></span>
+      <span class="file-item-uploading-eta"></span>
+    </div>
   `;
 
   list.appendChild(item);
   list.scrollTop = list.scrollHeight;
 
   return {
-    fill: item.querySelector(".file-item-uploading-bar-fill"),
-    pct:  item.querySelector(".file-item-uploading-pct"),
+    fill:  item.querySelector(".file-item-uploading-bar-fill"),
+    pct:   item.querySelector(".file-item-uploading-pct"),
+    speed: item.querySelector(".file-item-uploading-speed"),
+    eta:   item.querySelector(".file-item-uploading-eta"),
     item,
   };
 }
 
 /**
- * Simule la progression de l'upload en animant la barre jusqu'a 90%,
- * puis la complete a 100% une fois la reponse recue.
- * Necessite fetch car XHR est bloque par certaines extensions navigateur.
+ * Formate une vitesse en octets/s en chaine lisible (Ko/s ou Mo/s).
  */
-async function uploadFile(event) {
+function formatSpeed(bps) {
+  if (bps >= 1024 * 1024) return (bps / 1024 / 1024).toFixed(1) + " Mo/s";
+  if (bps >= 1024)        return Math.round(bps / 1024) + " Ko/s";
+  return Math.round(bps) + " o/s";
+}
+
+/**
+ * Formate un temps restant en secondes en chaine lisible.
+ */
+function formatEta(sec) {
+  if (!isFinite(sec) || sec < 0) return "";
+  if (sec < 2)  return "< 1s";
+  if (sec < 60) return Math.round(sec) + "s";
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return m + "min " + (s < 10 ? "0" : "") + s + "s";
+}
+
+/**
+ * Envoie un fichier au serveur en streaming raw (corps HTTP brut, header X-Filename).
+ * Utilise XMLHttpRequest pour acceder aux evenements de progression reels
+ * (pourcentage, vitesse instantanee, estimation du temps restant).
+ */
+function uploadFile(event) {
   const file = event.target.files[0];
   if (!file) return;
   event.target.value = "";
 
-  const { fill, pct, item } = appendUploadingItem(file.name);
+  const { fill, pct, speed: speedEl, eta: etaEl, item } = appendUploadingItem(file.name);
+  const startTime = Date.now();
 
-  /* Estimation de la duree : ~500 Ko/s minimum, plafonne a 30s */
-  const estimatedMs = Math.min(Math.max((file.size / 512000) * 1000, 400), 30000);
-  const intervalMs  = 80;
-  const steps       = estimatedMs / intervalMs;
-  let   current     = 0;
+  const xhr = new XMLHttpRequest();
 
-  /* Animation de 0 -> 90% pendant l'envoi */
-  const timer = setInterval(() => {
-    current = Math.min(current + (90 / steps), 90);
-    fill.style.width = current.toFixed(1) + "%";
-    pct.textContent  = Math.round(current) + "%";
-  }, intervalMs);
+  /* Progression reelle fournie par le navigateur */
+  xhr.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
 
-  const form = new FormData();
-  form.append("file", file, file.name);
+    const pctVal  = (e.loaded / e.total) * 100;
+    fill.style.width = pctVal.toFixed(1) + "%";
+    pct.textContent  = Math.round(pctVal) + "%";
 
-  try {
-    const res  = await fetch(`/api/rooms/${ROOM_ID}/upload?token=${encodeURIComponent(sessionToken)}`, {
-      method: "POST",
-      body:   form,
-    });
-    const data = await res.json();
+    const elapsedSec = (Date.now() - startTime) / 1000;
+    if (elapsedSec > 0.3 && e.loaded > 0) {
+      const bps       = e.loaded / elapsedSec;
+      const remaining = (e.total - e.loaded) / bps;
+      speedEl.textContent = formatSpeed(bps);
+      etaEl.textContent   = formatEta(remaining);
+    }
+  };
 
-    clearInterval(timer);
+  xhr.onload = () => {
+    let data = {};
+    try { data = JSON.parse(xhr.responseText); } catch { /* reponse non-JSON */ }
 
-    if (!res.ok) {
+    if (xhr.status !== 200) {
       item.remove();
       showToast(data.error || "Erreur upload.");
       return;
     }
 
-    /* Completion visuelle rapide avant suppression de l'item */
+    /* Completion visuelle puis disparition de l'item */
     fill.style.transition = "width .15s linear";
     fill.style.width      = "100%";
     pct.textContent       = "100%";
-    setTimeout(() => item.remove(), 200);
-  } catch {
-    clearInterval(timer);
+    speedEl.textContent   = "";
+    etaEl.textContent     = "";
+    setTimeout(() => item.remove(), 300);
+  };
+
+  xhr.onerror = () => {
     item.remove();
     showToast("Erreur lors de l'envoi du fichier.");
-  }
+  };
+
+  xhr.open("POST", `/api/rooms/${ROOM_ID}/upload?token=${encodeURIComponent(sessionToken)}`);
+  /* Le nom est encode pour supporter les espaces et caracteres speciaux */
+  xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name));
+  xhr.send(file);
 }
 
 /* ============================================================

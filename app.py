@@ -76,7 +76,10 @@ def create_app() -> web.Application:
     Returns:
         Instance web.Application prete a etre servie.
     """
-    app = web.Application(middlewares=[security_headers])
+    # client_max_size=0 desactive la limite interne d'aiohttp sur le corps HTTP,
+    # ce qui permet le streaming de gros fichiers sans rejet premature.
+    # La validation de taille est geree applicativement dans upload.py.
+    app = web.Application(middlewares=[security_headers], client_max_size=0)
 
     app["state"] = AppState()
 
